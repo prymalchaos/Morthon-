@@ -1,34 +1,86 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
-  <title>Space Maze RPG</title>
-  <link rel="stylesheet" href="style.css" />
-</head>
-<body>
-  <div id="app">
-    <canvas id="game"></canvas>
+:root{
+  --bg:#070A12;
+  --panel:#0C1426;
+  --line:#1D2A46;
+  --text:#E7F0FF;
+  --btn:#122248;
+  --btn2:#182D5F;
+}
 
-    <!-- Mobile controls -->
-    <div id="controls">
-      <div class="pad">
-        <button data-dir="up" aria-label="Up">▲</button>
-        <div class="mid">
-          <button data-dir="left" aria-label="Left">◀</button>
-          <button data-dir="down" aria-label="Down">▼</button>
-          <button data-dir="right" aria-label="Right">▶</button>
-        </div>
-      </div>
+*{ box-sizing:border-box; touch-action:manipulation; }
 
-      <!-- Reserved buttons for later systems -->
-      <div class="actions">
-        <button id="btn-action" disabled>Action</button>
-        <button id="btn-menu" disabled>Menu</button>
-      </div>
-    </div>
-  </div>
+html,body{
+  height:100%;
+  margin:0;
+  background:radial-gradient(1200px 800px at 50% 30%, #0A1430, var(--bg));
+  color:var(--text);
+  font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;
+}
 
-  <script type="module" src="./src/main.js"></script>
-</body>
-</html>
+#app{
+  height:100%;
+  display:flex;
+  flex-direction:column;
+}
+
+#game{
+  width:100%;
+  flex:1;
+  display:block;
+  background:linear-gradient(180deg, #050812, #050812);
+}
+
+#controls{
+  display:flex;
+  justify-content:space-between;
+  gap:12px;
+  padding:12px;
+  background:linear-gradient(180deg, rgba(12,20,38,0.6), rgba(12,20,38,0.95));
+  border-top:1px solid var(--line);
+}
+
+.pad{
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  width:55%;
+  max-width:320px;
+}
+
+.mid{
+  display:flex;
+  gap:8px;
+  justify-content:space-between;
+}
+
+button{
+  appearance:none;
+  border:1px solid rgba(231,240,255,0.18);
+  background:linear-gradient(180deg, var(--btn2), var(--btn));
+  color:var(--text);
+  padding:14px 16px;
+  border-radius:14px;
+  font-size:18px;
+  font-weight:700;
+}
+
+button:active{
+  transform:translateY(1px);
+  filter:brightness(1.05);
+}
+
+.actions{
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  width:45%;
+  max-width:220px;
+}
+
+.actions button{
+  width:100%;
+  opacity:0.8;
+}
+.actions button:disabled{
+  opacity:0.35;
+}
