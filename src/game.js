@@ -20,41 +20,31 @@ export class Game {
 
     this.floor = 1;
 
-    // Medkits on the map: Set of "x,y"
     this.medkits = new Set();
-
-    // Key system
     this.keysHave = 0;
     this.keysNeed = 0;
 
-    // Track enemy tile for post-battle drops
-    this.lastEncounterTile = null;
-
     this.battleUI.onWin = (enemySnapshot) => {
-      // XP
       const xpGain = enemySnapshot.xpValue ?? 5;
       this.player.stats.xp += xpGain;
 
       // KEYCARD (every enemy drops one)
       this.keysHave = Math.min(this.keysNeed, this.keysHave + 1);
 
-      // Small heal-on-kill (feels good, not too strong)
+      // Small heal-on-kill
       this.healPlayer(2);
 
-      // Chance to drop medkit on the enemy's tile (and sometimes always early floors)
+      // Chance to drop medkit on enemy tile
       const dropChance = this.floor <= 2 ? 0.55 : 0.35;
-      const willDrop = Math.random() < dropChance;
-
-      if (willDrop && enemySnapshot?.x != null && enemySnapshot?.y != null){
+      if (Math.random() < dropChance && enemySnapshot?.x != null && enemySnapshot?.y != null){
         this.medkits.add(`${enemySnapshot.x},${enemySnapshot.y}`);
       }
 
-      // Remove defeated enemy from the map
+      // Remove defeated enemy
       if (this.currentEnemyId != null) {
         this.enemies = this.enemies.filter((e) => e.id !== this.currentEnemyId);
         this.currentEnemyId = null;
       }
-      // Exit button becomes available in UI after battle ends
     };
 
     this.battleUI.onLose = () => {
@@ -98,15 +88,11 @@ export class Game {
           str: 2,
           int: 1,
           xp: 0,
+          _pellets: 0
         },
-        loadout: {
-          melee: { name: "Space Sword", dmgDice: { count: 1, sides: 8 } },
-          ranged: { name: "Blaster", dmgDice: { count: 1, sides: 6 } },
-        },
+        // player choices are handled in battle UI (Sword / Gun / Shield)
       };
-      this.keysHave = 0;
     } else {
-      // carry stats across floors, reposition
       this.player.x = start.x;
       this.player.y = start.y;
       this.player.px = start.x;
@@ -114,19 +100,17 @@ export class Game {
       this.player.dir = { x: 0, y: 0 };
       this.player.nextDir = { x: 0, y: 0 };
 
-      // Gentle between-floor heal
       const heal = Math.max(1, Math.floor(this.player.stats.maxHp * 0.15));
       this.healPlayer(heal);
     }
 
-    // Spawn enemies and set key requirement
+    // Enemies + key requirement
     this.enemyIdCounter = 1;
     this.enemies = this.spawnEnemies(this.enemyCountForFloor(this.floor));
     this.keysNeed = this.enemies.length;
-    this.keysHave = 0; // per-floor keys (forces hunting)
+    this.keysHave = 0;
     this.currentEnemyId = null;
 
-    // Optional: seed 1 medkit somewhere (helps pacing)
     this.seedOneMedkitFarFromStart(start);
 
     this.mode = "explore";
@@ -182,7 +166,7 @@ export class Game {
       this.stepEnemy(e, dt);
     }
 
-    // Pellet pickup (tiny sustain: every 6 pellets = +1 HP)
+    // Pellet pickup (every 6 pellets = +1 HP)
     const pkey = `${this.player.x},${this.player.y}`;
     if (this.pellets.has(pkey)){
       this.pellets.delete(pkey);
@@ -198,7 +182,7 @@ export class Game {
       this.healPlayer(7);
     }
 
-    // Exit portal logic: only works if you have all keys
+    // Exit locked until keys collected
     if (this.exit && this.player.x === this.exit.x && this.player.y === this.exit.y) {
       if (this.keysHave >= this.keysNeed){
         this.nextFloor();
@@ -289,10 +273,11 @@ export class Game {
     const enemies = [];
     let tries = 0;
 
+    // Each template has a weaponType (sword/gun/shield)
     const templates = [
-      { name: "Void Drone", ac: 12, atk: 2, dmgSides: 6, dmgMod: 1, maxHp: 10, xpValue: 6, speed: 7.0 },
-      { name: "Corridor Wisp", ac: 11, atk: 3, dmgSides: 4, dmgMod: 2, maxHp: 8,  xpValue: 5, speed: 7.4 },
-      { name: "Rust Reaper",  ac: 13, atk: 2, dmgSides: 8, dmgMod: 0, maxHp: 12, xpValue: 8, speed: 6.6 },
+      { name: "Void Duelist",   weaponType: "sword",  ac: 12, atk: 2, dmgSides: 8, dmgMod: 0, maxHp: 11, xpValue: 7, speed: 7.0 },
+      { name: "Gunner Drone",   weaponType: "gun",    ac: 11, atk: 3, dmgSides: 6, dmgMod: 1, maxHp: 9,  xpValue: 6, speed: 7.4 },
+      { name: "Bulwark Unit",   weaponType: "shield", ac: 13, atk: 2, dmgSides: 4, dmgMod: 0, maxHp: 13, xpValue: 8, speed: 6.6 },
     ];
 
     const hpBonus = Math.floor((this.floor - 1) * 0.6);
@@ -317,6 +302,7 @@ export class Game {
       enemies.push({
         id: this.enemyIdCounter++,
         name: t.name,
+        weaponType: t.weaponType,
         x,
         y,
         px: x,
