@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <title>Space Maze RPG</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+    <canvas id="game"></canvas>
+
+    <!-- Mobile controls -->
+    <div id="controls">
+      <div class="pad">
+        <button data-dir="up" aria-label="Up">▲</button>
+        <div class="mid">
+          <button data-dir="left" aria-label="Left">◀</button>
+          <button data-dir="down" aria-label="Down">▼</button>
+          <button data-dir="right" aria-label="Right">▶</button>
+        </div>
+      </div>
+
+      <!-- Reserved buttons for later systems -->
+      <div class="actions">
+        <button id="btn-action" disabled>Action</button>
+        <button id="btn-menu" disabled>Menu</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
