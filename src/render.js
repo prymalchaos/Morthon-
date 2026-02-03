@@ -8,7 +8,7 @@ export class Renderer{
     this.vw = w; this.vh = h; this.dpr = dpr;
   }
 
-  draw(grid, pellets, medkits, player, enemies, exit, floor, keysHave, keysNeed){
+  draw(grid, pellets, medkits, player, enemies, exit, floor, keysHave, keysNeed, toast){
     const ctx = this.ctx;
     ctx.clearRect(0,0,this.vw,this.vh);
 
@@ -33,7 +33,7 @@ export class Renderer{
       }
     }
 
-    // Exit portal (locked until all keys collected)
+    // Exit portal (locked by keys)
     if (exit){
       const ex = ox + exit.x*cell + cell/2;
       const ey = oy + exit.y*cell + cell/2;
@@ -51,13 +51,11 @@ export class Renderer{
       ctx.arc(ex, ey, Math.floor(cell*0.32), 0, Math.PI*2);
       ctx.stroke();
 
-      // Lock glyph
       ctx.fillStyle = unlocked ? "rgba(220,190,255,0.95)" : "rgba(220,190,255,0.60)";
       ctx.font = `${Math.floor(cell*0.55)}px system-ui`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText(unlocked ? "⟡" : "🔒", ex, ey);
-
       ctx.textAlign = "left";
       ctx.textBaseline = "alphabetic";
     }
@@ -88,7 +86,6 @@ export class Renderer{
       ctx.strokeStyle = "rgba(120,255,160,0.95)";
       ctx.lineWidth = Math.max(1, Math.floor(2*this.dpr));
       ctx.beginPath();
-      // plus sign
       ctx.moveTo(cx - cell*0.12, cy);
       ctx.lineTo(cx + cell*0.12, cy);
       ctx.moveTo(cx, cy - cell*0.12);
@@ -96,8 +93,51 @@ export class Renderer{
       ctx.stroke();
     }
 
-    // Enemies
+    // Enemies (boss drawn as a snake/dragon with a trail)
     for (const e of enemies){
+      if (e.isBoss){
+        // draw trail
+        if (Array.isArray(e.trail)){
+          for (let i=e.trail.length-1;i>=0;i--){
+            const seg = e.trail[i];
+            const sx = ox + seg.px*cell + cell/2;
+            const sy = oy + seg.py*cell + cell/2;
+            const t = (i+1) / (e.trail.length+1);
+            ctx.fillStyle = `rgba(140,255,180,${0.10 + 0.25*t})`;
+            ctx.beginPath();
+            ctx.arc(sx, sy, Math.floor(cell*(0.18 + 0.08*t)), 0, Math.PI*2);
+            ctx.fill();
+          }
+        }
+
+        // boss head
+        const ex = ox + e.px*cell + cell/2;
+        const ey = oy + e.py*cell + cell/2;
+
+        ctx.fillStyle = "rgba(140,255,180,0.88)";
+        ctx.beginPath();
+        ctx.arc(ex, ey, Math.floor(cell*0.50), 0, Math.PI*2);
+        ctx.fill();
+
+        // eyes/crest
+        ctx.strokeStyle = "rgba(5,8,18,0.75)";
+        ctx.lineWidth = Math.max(1, Math.floor(2*this.dpr));
+        ctx.beginPath();
+        ctx.moveTo(ex - cell*0.18, ey - cell*0.06);
+        ctx.lineTo(ex - cell*0.05, ey - cell*0.10);
+        ctx.moveTo(ex + cell*0.05, ey - cell*0.10);
+        ctx.lineTo(ex + cell*0.18, ey - cell*0.06);
+        ctx.stroke();
+
+        // phase ring
+        ctx.strokeStyle = "rgba(220,255,230,0.55)";
+        ctx.beginPath();
+        ctx.arc(ex, ey, Math.floor(cell*0.62), 0, Math.PI*2);
+        ctx.stroke();
+        continue;
+      }
+
+      // normal enemy
       const ex = ox + e.px*cell + cell/2;
       const ey = oy + e.py*cell + cell/2;
 
@@ -129,8 +169,24 @@ export class Renderer{
     ctx.fillText(`HP: ${player.stats.hp}/${player.stats.maxHp}  XP: ${player.stats.xp}`, 12*this.dpr, 38*this.dpr);
     ctx.fillText(`Keys: ${keysHave}/${keysNeed}`, 12*this.dpr, 58*this.dpr);
 
-    ctx.fillStyle = "rgba(220,190,255,0.75)";
+    const wt = player.gear?.weaponTier ?? 1;
+    const at = player.gear?.armorTier ?? 1;
+    ctx.fillStyle = "rgba(220,190,255,0.78)";
     ctx.font = `${12*this.dpr}px system-ui`;
-    ctx.fillText(keysHave >= keysNeed ? `Exit unlocked` : `Hunt enemies for keycards`, 12*this.dpr, 78*this.dpr);
+    ctx.fillText(`Gear: Weapon T${wt}  Armor T${at}`, 12*this.dpr, 78*this.dpr);
+
+    // Toast message
+    if (toast?.text){
+      ctx.fillStyle = "rgba(5,8,18,0.55)";
+      const tw = Math.min(this.vw - 24*this.dpr, 520*this.dpr);
+      const th = 30*this.dpr;
+      const tx = 12*this.dpr;
+      const ty = 92*this.dpr;
+      ctx.fillRect(tx, ty, tw, th);
+
+      ctx.fillStyle = "rgba(231,240,255,0.92)";
+      ctx.font = `${12*this.dpr}px system-ui`;
+      ctx.fillText(toast.text, tx + 10*this.dpr, ty + 20*this.dpr);
+    }
   }
 }
