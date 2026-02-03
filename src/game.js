@@ -25,16 +25,27 @@ export class Game {
     this.keysNeed = 0;
 
     // boss state
-    this.boss = null; // stored as an "enemy" object when boss floor
+    this.boss = null;
     this.bossPhase = 1;
 
     // toast
     this.toast = { text: "", t: 0 };
 
+    // --- DEBUG: allow URL to force a starting floor ---
+    // Use: ?floor=3 or ?level=3
+    try {
+      const qs = new URLSearchParams(window.location.search);
+      const f = parseInt(qs.get("floor") || qs.get("level") || "0", 10);
+      if (Number.isFinite(f) && f >= 1) this.floor = f;
+    } catch (_) {}
+
+    // --- DEBUG: Level selection panel ---
+    this.initDebugPanel();
+
     this.battleUI.onWin = (enemySnapshot) => {
       const isBoss = !!enemySnapshot.isBoss;
 
-      if (isBoss){
+      if (isBoss) {
         this.handleBossPhaseWin(enemySnapshot);
         return;
       }
@@ -51,7 +62,7 @@ export class Game {
 
       // chance to drop medkit
       const dropChance = this.floor <= 2 ? 0.55 : 0.35;
-      if (Math.random() < dropChance && enemySnapshot?.x != null && enemySnapshot?.y != null){
+      if (Math.random() < dropChance && enemySnapshot?.x != null && enemySnapshot?.y != null) {
         this.medkits.add(`${enemySnapshot.x},${enemySnapshot.y}`);
       }
 
@@ -68,6 +79,7 @@ export class Game {
       this.battleUI.close();
       this.mode = "explore";
       this.currentEnemyId = null;
+      this.toastMessage(`Reset to Floor 1`, 1.4);
     };
 
     this.battleUI.onExit = () => {
@@ -77,8 +89,175 @@ export class Game {
     this.resetRun(true);
   }
 
+  // ---------- DEBUG UI ----------
+  initDebugPanel() {
+    // Toggle button
+    const btn = document.createElement("button");
+    btn.textContent = "DEV";
+    btn.style.position = "fixed";
+    btn.style.right = "10px";
+    btn.style.top = "10px";
+    btn.style.zIndex = "9999";
+    btn.style.padding = "8px 10px";
+    btn.style.borderRadius = "10px";
+    btn.style.border = "1px solid rgba(255,255,255,0.25)";
+    btn.style.background = "rgba(5,8,18,0.75)";
+    btn.style.color = "rgba(231,240,255,0.95)";
+    btn.style.fontFamily = "system-ui";
+    btn.style.fontSize = "12px";
+
+    // Panel
+    const panel = document.createElement("div");
+    panel.style.position = "fixed";
+    panel.style.right = "10px";
+    panel.style.top = "48px";
+    panel.style.zIndex = "9999";
+    panel.style.padding = "10px";
+    panel.style.borderRadius = "12px";
+    panel.style.border = "1px solid rgba(255,255,255,0.18)";
+    panel.style.background = "rgba(5,8,18,0.85)";
+    panel.style.color = "rgba(231,240,255,0.92)";
+    panel.style.fontFamily = "system-ui";
+    panel.style.fontSize = "12px";
+    panel.style.width = "220px";
+    panel.style.display = "none";
+
+    const title = document.createElement("div");
+    title.textContent = "Debug: Level Select";
+    title.style.marginBottom = "8px";
+    title.style.fontWeight = "600";
+
+    const row1 = document.createElement("div");
+    row1.style.display = "flex";
+    row1.style.gap = "8px";
+    row1.style.alignItems = "center";
+    row1.style.marginBottom = "8px";
+
+    const label = document.createElement("div");
+    label.textContent = "Floor:";
+    label.style.width = "44px";
+
+    const input = document.createElement("input");
+    input.type = "number";
+    input.min = "1";
+    input.value = String(this.floor);
+    input.style.flex = "1";
+    input.style.padding = "6px 8px";
+    input.style.borderRadius = "10px";
+    input.style.border = "1px solid rgba(255,255,255,0.18)";
+    input.style.background = "rgba(231,240,255,0.07)";
+    input.style.color = "rgba(231,240,255,0.92)";
+    input.style.outline = "none";
+
+    row1.appendChild(label);
+    row1.appendChild(input);
+
+    const mkBtn = (txt) => {
+      const b = document.createElement("button");
+      b.textContent = txt;
+      b.style.padding = "6px 8px";
+      b.style.borderRadius = "10px";
+      b.style.border = "1px solid rgba(255,255,255,0.18)";
+      b.style.background = "rgba(231,240,255,0.08)";
+      b.style.color = "rgba(231,240,255,0.92)";
+      b.style.fontFamily = "system-ui";
+      b.style.fontSize = "12px";
+      return b;
+    };
+
+    const row2 = document.createElement("div");
+    row2.style.display = "flex";
+    row2.style.gap = "6px";
+    row2.style.marginBottom = "8px";
+
+    const bMinus = mkBtn("−1");
+    const bPlus = mkBtn("+1");
+    const bGo = mkBtn("Go");
+
+    row2.appendChild(bMinus);
+    row2.appendChild(bPlus);
+    row2.appendChild(bGo);
+
+    const row3 = document.createElement("div");
+    row3.style.display = "flex";
+    row3.style.gap = "6px";
+    row3.style.marginBottom = "8px";
+
+    const bBoss = mkBtn("Next Boss");
+    const bReset = mkBtn("Reset Gear");
+    row3.appendChild(bBoss);
+    row3.appendChild(bReset);
+
+    const hint = document.createElement("div");
+    hint.style.opacity = "0.75";
+    hint.style.lineHeight = "1.25";
+    hint.textContent = "Tip: You can also start at a floor via ?floor=3";
+
+    panel.appendChild(title);
+    panel.appendChild(row1);
+    panel.appendChild(row2);
+    panel.appendChild(row3);
+    panel.appendChild(hint);
+
+    // wiring
+    btn.addEventListener("click", () => {
+      panel.style.display = (panel.style.display === "none") ? "block" : "none";
+      input.value = String(this.floor);
+    });
+
+    bMinus.addEventListener("click", () => {
+      const f = Math.max(1, (parseInt(input.value || "1", 10) || 1) - 1);
+      input.value = String(f);
+      this.setFloor(f, false);
+    });
+
+    bPlus.addEventListener("click", () => {
+      const f = Math.max(1, (parseInt(input.value || "1", 10) || 1) + 1);
+      input.value = String(f);
+      this.setFloor(f, false);
+    });
+
+    bGo.addEventListener("click", () => {
+      const f = Math.max(1, parseInt(input.value || "1", 10) || 1);
+      input.value = String(f);
+      this.setFloor(f, false);
+    });
+
+    bBoss.addEventListener("click", () => {
+      const cur = Math.max(1, parseInt(input.value || "1", 10) || 1);
+      const nextBoss = cur + ((3 - (cur % 3)) % 3); // if already boss, stays
+      input.value = String(nextBoss);
+      this.setFloor(nextBoss, false);
+      this.toastMessage(`Jumped to Boss Floor ${nextBoss}`, 1.6);
+    });
+
+    bReset.addEventListener("click", () => {
+      // full reset of player/gear/stats but keep chosen floor
+      this.resetRun(true);
+      this.toastMessage(`Reset run on Floor ${this.floor}`, 1.6);
+    });
+
+    document.body.appendChild(btn);
+    document.body.appendChild(panel);
+
+    // Small keyboard helper on desktop: `L` toggles panel
+    window.addEventListener("keydown", (e) => {
+      if (e.key.toLowerCase() === "l") btn.click();
+    });
+  }
+
+  setFloor(floor, fullReset = false) {
+    this.floor = Math.max(1, floor | 0);
+    // If a battle UI is open, close it to prevent weird state
+    try { this.battleUI.close(); } catch (_) {}
+    this.mode = "explore";
+    this.currentEnemyId = null;
+    this.resetRun(fullReset);
+    this.toastMessage(`Loaded Floor ${this.floor}${this.isBossFloor(this.floor) ? " (Boss)" : ""}`, 1.4);
+  }
+
   // ---------- Run / Floors ----------
-  isBossFloor(floor){
+  isBossFloor(floor) {
     return floor % 3 === 0;
   }
 
@@ -118,7 +297,6 @@ export class Game {
       };
       this.keysHave = 0;
     } else {
-      // carry to next floor
       this.player.x = start.x;
       this.player.y = start.y;
       this.player.px = start.x;
@@ -130,8 +308,7 @@ export class Game {
       this.healPlayer(heal);
     }
 
-    // boss vs normal floors
-    if (this.isBossFloor(this.floor)){
+    if (this.isBossFloor(this.floor)) {
       this.spawnBossFloor(start);
     } else {
       this.spawnNormalFloor(start);
@@ -141,7 +318,7 @@ export class Game {
     this.toastMessage(this.isBossFloor(this.floor) ? `BOSS FLOOR: Hunt the serpent.` : `Hunt keycards to unlock the exit.`);
   }
 
-  spawnNormalFloor(start){
+  spawnNormalFloor(start) {
     this.boss = null;
     this.bossPhase = 1;
 
@@ -150,40 +327,35 @@ export class Game {
     this.keysNeed = this.enemies.length;
     this.keysHave = 0;
 
-    // seed a medkit
     this.seedOneMedkitFarFromStart(start);
   }
 
-  spawnBossFloor(start){
-    // No regular enemies: the boss is the key
+  spawnBossFloor(start) {
     this.enemies = [];
-    this.keysNeed = 3; // each phase effectively grants a "key"
+    this.keysNeed = 3;
     this.keysHave = 0;
 
     this.bossPhase = 1;
     this.boss = this.spawnBoss(start);
     this.enemies.push(this.boss);
 
-    // boss floor gets 2 medkits seeded
     this.seedOneMedkitFarFromStart(start);
     this.seedOneMedkitFarFromStart(start);
   }
 
-  nextFloor(){
+  nextFloor() {
     this.floor += 1;
     this.resetRun(false);
   }
 
   // ---------- Boss ----------
-  spawnBoss(start){
+  spawnBoss(start) {
     const pos = this.findFarFloorTile(start, 14);
-
-    // A simple serpent/dragon head that moves like a roaming enemy
-    const weaponCycle = ["sword", "gun", "shield"]; // phase stance
+    const weaponCycle = ["sword", "gun", "shield"];
     const w = weaponCycle[this.bossPhase - 1] || "sword";
 
     const baseHp = 18 + Math.floor(this.floor * 1.5);
-    const phaseHp = Math.floor(baseHp * (0.85 + 0.10*(this.bossPhase-1))); // rises slightly per phase
+    const phaseHp = Math.floor(baseHp * (0.85 + 0.10 * (this.bossPhase - 1)));
 
     return {
       id: 999,
@@ -203,60 +375,48 @@ export class Game {
       dmgMod: 1,
       xpValue: 20 + this.floor * 2,
       brain: "chaser",
-      trail: [] // for rendering body segments
+      trail: []
     };
   }
 
-  handleBossPhaseWin(enemySnapshot){
-    // A boss "win" means the current phase HP was reduced to 0.
-    // If phase < 3: retreat, heal to next phase HP, change stance, relocate.
-    if (this.bossPhase < 3){
+  handleBossPhaseWin(enemySnapshot) {
+    if (this.bossPhase < 3) {
       this.bossPhase += 1;
       this.keysHave = Math.min(this.keysNeed, this.keysHave + 1);
 
       this.toastMessage(`Boss retreats! Phase ${this.bossPhase}/3… hunt it down.`);
 
-      // relocate and rebuild boss for next phase
       const start = { x: this.player.x, y: this.player.y };
       this.boss = this.spawnBoss(start);
       this.boss.phase = this.bossPhase;
 
-      // Replace boss in enemies list
       this.enemies = [this.boss];
 
-      // Reward: guaranteed medkit drop somewhere near-ish
       const drop = this.findFarFloorTile(start, 8);
       this.medkits.add(`${drop.x},${drop.y}`);
 
-      // Small between-phase heal
       this.healPlayer(4);
       return;
     }
 
-    // Final phase defeated
-    this.keysHave = this.keysNeed; // unlock exit
+    this.keysHave = this.keysNeed;
     this.toastMessage(`Boss defeated! Loot acquired.`);
     this.applyBossLoot();
-    this.enemies = []; // boss gone
+    this.enemies = [];
     this.boss = null;
     this.bossPhase = 1;
 
-    // Big heal after victory
     this.healPlayer(8);
   }
 
-  applyBossLoot(){
-    // Choose one upgrade: weapon or armor
+  applyBossLoot() {
     const roll = Math.random();
-    if (roll < 0.55){
-      // weapon upgrade
+    if (roll < 0.55) {
       this.player.gear.weaponTier = Math.min(6, (this.player.gear.weaponTier || 1) + 1);
       const t = this.player.gear.weaponTier;
       this.toastMessage(`Loot: Weapon upgraded to Tier ${t}.`);
-      // small atk bump every other tier
       if (t % 2 === 0) this.player.stats.atk += 1;
     } else {
-      // armor upgrade
       this.player.gear.armorTier = Math.min(6, (this.player.gear.armorTier || 1) + 1);
       const t = this.player.gear.armorTier;
       this.toastMessage(`Loot: Armor upgraded to Tier ${t}.`);
@@ -267,47 +427,50 @@ export class Game {
   }
 
   // ---------- Utilities ----------
-  toastMessage(text, seconds = 2.2){
+  toastMessage(text, seconds = 2.2) {
     this.toast.text = text;
     this.toast.t = seconds;
   }
 
-  healPlayer(amount){
+  healPlayer(amount) {
     this.player.stats.hp = Math.min(this.player.stats.maxHp, this.player.stats.hp + amount);
   }
 
-  enemyCountForFloor(floor){
+  enemyCountForFloor(floor) {
     return Math.min(10, 4 + Math.floor((floor - 1) * 0.8));
   }
 
-  seedOneMedkitFarFromStart(start){
+  seedOneMedkitFarFromStart(start) {
     let tries = 0;
-    while (tries < 2000){
+    while (tries < 2000) {
       tries++;
       const x = 1 + Math.floor(Math.random() * (this.cols - 2));
       const y = 1 + Math.floor(Math.random() * (this.rows - 2));
-      if (!this.isFloor(x,y)) continue;
+      if (!this.isFloor(x, y)) continue;
       if (this.exit && x === this.exit.x && y === this.exit.y) continue;
+
       const dist = Math.abs(x - start.x) + Math.abs(y - start.y);
       if (dist < 10) continue;
+
       this.medkits.add(`${x},${y}`);
       return;
     }
   }
 
-  findFarFloorTile(from, minDist){
+  findFarFloorTile(from, minDist) {
     let tries = 0;
-    while (tries < 4000){
+    while (tries < 4000) {
       tries++;
       const x = 1 + Math.floor(Math.random() * (this.cols - 2));
       const y = 1 + Math.floor(Math.random() * (this.rows - 2));
-      if (!this.isFloor(x,y)) continue;
+      if (!this.isFloor(x, y)) continue;
       if (this.exit && x === this.exit.x && y === this.exit.y) continue;
+
       const dist = Math.abs(x - from.x) + Math.abs(y - from.y);
       if (dist < minDist) continue;
+
       return { x, y };
     }
-    // fallback
     return { x: from.x, y: from.y };
   }
 
@@ -321,8 +484,7 @@ export class Game {
   }
 
   update(dt) {
-    // toast time
-    if (this.toast.t > 0){
+    if (this.toast.t > 0) {
       this.toast.t = Math.max(0, this.toast.t - dt);
       if (this.toast.t === 0) this.toast.text = "";
     }
@@ -336,33 +498,27 @@ export class Game {
 
     for (const e of this.enemies) {
       this.stepEnemy(e, dt);
-
-      // Boss trail update
-      if (e.isBoss){
-        this.updateBossTrail(e);
-      }
+      if (e.isBoss) this.updateBossTrail(e);
     }
 
-    // Pellet pickup (every 6 pellets = +1 HP)
     const pkey = `${this.player.x},${this.player.y}`;
-    if (this.pellets.has(pkey)){
+
+    if (this.pellets.has(pkey)) {
       this.pellets.delete(pkey);
       this.player.stats._pellets = (this.player.stats._pellets || 0) + 1;
-      if (this.player.stats._pellets % 6 === 0){
+      if (this.player.stats._pellets % 6 === 0) {
         this.healPlayer(1);
       }
     }
 
-    // Medkit pickup
-    if (this.medkits.has(pkey)){
+    if (this.medkits.has(pkey)) {
       this.medkits.delete(pkey);
       this.healPlayer(7);
       this.toastMessage(`+7 HP (Medkit)`, 1.2);
     }
 
-    // Exit locked until keys collected
     if (this.exit && this.player.x === this.exit.x && this.player.y === this.exit.y) {
-      if (this.keysHave >= this.keysNeed){
+      if (this.keysHave >= this.keysNeed) {
         this.nextFloor();
       } else {
         this.toastMessage(`Exit locked. Keys: ${this.keysHave}/${this.keysNeed}`, 1.0);
@@ -370,7 +526,6 @@ export class Game {
       return;
     }
 
-    // Collision → battle
     const hit = this.checkEnemyCollision();
     if (hit) {
       this.mode = "battle";
@@ -379,17 +534,15 @@ export class Game {
     }
   }
 
-  updateBossTrail(boss){
-    // keep a short body behind the head
+  updateBossTrail(boss) {
     const maxSeg = 12 + (boss.phase * 2);
     if (!boss.trail) boss.trail = [];
 
-    // sample tile centers so it looks "snakey" not jittery
     const last = boss.trail[0];
     const dx = last ? Math.abs(last.px - boss.px) : 999;
     const dy = last ? Math.abs(last.py - boss.py) : 999;
 
-    if (!last || (dx + dy) > 0.45){
+    if (!last || (dx + dy) > 0.45) {
       boss.trail.unshift({ px: boss.px, py: boss.py });
       if (boss.trail.length > maxSeg) boss.trail.pop();
     }
@@ -424,7 +577,6 @@ export class Game {
   // ---------- Player movement ----------
   stepPlayer(dt) {
     const p = this.player;
-
     const nearCenter =
       Math.abs(p.px - p.x) < 0.001 && Math.abs(p.py - p.y) < 0.001;
 
@@ -471,9 +623,9 @@ export class Game {
     let tries = 0;
 
     const templates = [
-      { name: "Void Duelist",   weaponType: "sword",  ac: 12, atk: 2, dmgSides: 8, dmgMod: 0, maxHp: 11, xpValue: 7, speed: 7.0 },
-      { name: "Gunner Drone",   weaponType: "gun",    ac: 11, atk: 3, dmgSides: 6, dmgMod: 1, maxHp: 9,  xpValue: 6, speed: 7.4 },
-      { name: "Bulwark Unit",   weaponType: "shield", ac: 13, atk: 2, dmgSides: 4, dmgMod: 0, maxHp: 13, xpValue: 8, speed: 6.6 },
+      { name: "Void Duelist", weaponType: "sword",  ac: 12, atk: 2, dmgSides: 8, dmgMod: 0, maxHp: 11, xpValue: 7, speed: 7.0 },
+      { name: "Gunner Drone", weaponType: "gun",    ac: 11, atk: 3, dmgSides: 6, dmgMod: 1, maxHp: 9,  xpValue: 6, speed: 7.4 },
+      { name: "Bulwark Unit", weaponType: "shield", ac: 13, atk: 2, dmgSides: 4, dmgMod: 0, maxHp: 13, xpValue: 8, speed: 6.6 },
     ];
 
     const hpBonus = Math.floor((this.floor - 1) * 0.6);
