@@ -84,3 +84,57 @@ button:active{
 .actions button:disabled{
   opacity:0.35;
 }
+
+#encounter{
+  position:fixed;
+  inset:0;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:rgba(5,8,18,0.78);
+  backdrop-filter: blur(6px);
+  padding:18px;
+}
+
+#encounter.hidden{ display:none; }
+
+#encounter .panel{
+  width:min(520px, 100%);
+  border-radius:18px;
+  border:1px solid rgba(231,240,255,0.18);
+  background:linear-gradient(180deg, rgba(18,34,72,0.95), rgba(12,20,38,0.95));
+  padding:16px;
+  box-shadow:0 18px 60px rgba(0,0,0,0.45);
+}
+
+#encounter .title{
+  font-weight:900;
+  letter-spacing:2px;
+  opacity:0.9;
+  margin-bottom:6px;
+}
+
+#encounter .sub{
+  opacity:0.8;
+  margin-bottom:12px;
+}
+
+#encounter .row{
+  display:flex;
+  justify-content:space-between;
+  gap:12px;
+  padding:10px 0;
+  border-top:1px solid rgba(231,240,255,0.12);
+}
+
+#encounter .label{ opacity:0.75; }
+#encounter .value{ font-weight:800; }
+
+#encounter .btnrow{
+  display:flex;
+  gap:10px;
+  margin-top:14px;
+}
+#encounter .btnrow button{
+  flex:1;
+}
