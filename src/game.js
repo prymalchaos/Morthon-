@@ -1,4 +1,3 @@
-// src/game.js
 import { generateMaze } from "./maze.js";
 import { Input } from "./input.js";
 import { Renderer } from "./render.js";
@@ -12,23 +11,42 @@ export class Game {
     this.input = new Input();
     this.renderer = new Renderer(this.ctx);
 
-    // Battle overlay + mode
     this.battleUI = new BattleUI();
     this.mode = "explore"; // "explore" | "battle"
     this.currentEnemyId = null;
 
-    this.battleUI.onExit = () => {
-      this.mode = "explore";
-      // For now: remove the enemy you collided with (feels like a victory/escape)
+    // World config
+    this.cols = 21;
+    this.rows = 27;
+
+    // Wire battle callbacks
+    this.battleUI.onWin = (enemySnapshot) => {
+      // Award XP based on enemy
+      const xpGain = enemySnapshot.xpValue ?? 5;
+      this.player.stats.xp += xpGain;
+
+      // Remove the enemy from the map
       if (this.currentEnemyId != null) {
         this.enemies = this.enemies.filter((e) => e.id !== this.currentEnemyId);
         this.currentEnemyId = null;
       }
+
+      // You can exit now
+      // (BattleUI enables Exit on end)
     };
 
-    // World config
-    this.cols = 21; // odd feels more Pac-ish
-    this.rows = 27;
+    this.battleUI.onLose = () => {
+      // Hard reset for now (later: medbay, revive items, etc.)
+      this.resetRun();
+      this.battleUI.close();
+      this.mode = "explore";
+      this.currentEnemyId = null;
+    };
+
+    this.battleUI.onExit = () => {
+      // Return to maze after battle ends
+      this.mode = "explore";
+    };
 
     this.resetRun();
   }
@@ -36,24 +54,37 @@ export class Game {
   resetRun() {
     const { grid, pellets, start } = generateMaze(this.cols, this.rows);
 
-    this.grid = grid; // 0 = wall, 1 = floor
-    this.pellets = pellets; // Set of "x,y"
+    this.grid = grid;
+    this.pellets = pellets;
+
     this.player = {
       x: start.x,
       y: start.y,
-      px: start.x, // precise float position for smooth movement
+      px: start.x,
       py: start.y,
       dir: { x: 0, y: 0 },
       nextDir: { x: 0, y: 0 },
-      speed: 10.0, // tiles/sec
+      speed: 10.0,
+      stats: {
+        // Simple RPG sheet (we’ll grow this later)
+        hp: 20,
+        maxHp: 20,
+        ac: 12,
+        atk: 3,
+        str: 2, // sword damage mod
+        int: 1, // blaster damage mod
+        xp: 0,
+      },
+      loadout: {
+        melee: { name: "Space Sword", dmgDice: { count: 1, sides: 8 } },
+        ranged: { name: "Blaster", dmgDice: { count: 1, sides: 6 } },
+      },
     };
 
-    // Enemies
     this.enemyIdCounter = 1;
     this.enemies = this.spawnEnemies(4);
     this.currentEnemyId = null;
 
-    // Ensure we're in explore mode on reset
     this.mode = "explore";
   }
 
@@ -68,28 +99,23 @@ export class Game {
   update(dt) {
     if (this.mode === "battle") return;
 
-    // Input (mobile buttons / keyboard / swipe)
     const wanted = this.input.consumeDirection();
     if (wanted) this.player.nextDir = wanted;
 
-    // Move player
     this.stepPlayer(dt);
 
-    // Move enemies
     for (const e of this.enemies) {
       this.stepEnemy(e, dt);
     }
 
-    // Pick up pellets
     const key = `${this.player.x},${this.player.y}`;
     if (this.pellets.has(key)) this.pellets.delete(key);
 
-    // Collision -> battle
     const hit = this.checkEnemyCollision();
     if (hit) {
       this.mode = "battle";
       this.currentEnemyId = hit.id;
-      this.battleUI.open(hit);
+      this.battleUI.open(hit, this.player.stats);
     }
   }
 
@@ -97,8 +123,7 @@ export class Game {
     this.renderer.draw(this.grid, this.pellets, this.player, this.enemies);
   }
 
-  // ---------- Movement helpers ----------
-
+  // ---------- Grid helpers ----------
   isFloor(x, y) {
     if (x < 0 || y < 0 || x >= this.cols || y >= this.rows) return false;
     return this.grid[y][x] === 1;
@@ -109,23 +134,20 @@ export class Game {
     return this.isFloor(x + dx, y + dy);
   }
 
+  // ---------- Player movement ----------
   stepPlayer(dt) {
     const p = this.player;
 
-    // Close to center means we can safely change direction
     const nearCenter =
       Math.abs(p.px - p.x) < 0.001 && Math.abs(p.py - p.y) < 0.001;
 
     if (nearCenter) {
-      // Snap to center
       p.px = p.x;
       p.py = p.y;
 
-      // Try apply queued direction if valid
       if (this.canMove(p.x, p.y, p.nextDir.x, p.nextDir.y)) {
         p.dir = { ...p.nextDir };
       } else if (!this.canMove(p.x, p.y, p.dir.x, p.dir.y)) {
-        // Can't continue current direction -> stop
         p.dir = { x: 0, y: 0 };
       }
     }
@@ -137,7 +159,6 @@ export class Game {
     p.px += vx * dt;
     p.py += vy * dt;
 
-    // Move to nearest tile center if it's valid
     const tx = Math.round(p.px);
     const ty = Math.round(p.py);
 
@@ -145,7 +166,6 @@ export class Game {
       p.x = tx;
       p.y = ty;
     } else {
-      // hit wall -> clamp back
       p.px = p.x;
       p.py = p.y;
       p.dir = { x: 0, y: 0 };
@@ -159,10 +179,15 @@ export class Game {
   }
 
   // ---------- Enemies ----------
-
   spawnEnemies(n) {
     const enemies = [];
     let tries = 0;
+
+    const templates = [
+      { name: "Void Drone", ac: 12, atk: 2, dmgSides: 6, dmgMod: 1, maxHp: 10, xpValue: 6, speed: 7.0 },
+      { name: "Corridor Wisp", ac: 11, atk: 3, dmgSides: 4, dmgMod: 2, maxHp: 8,  xpValue: 5, speed: 7.4 },
+      { name: "Rust Reaper",  ac: 13, atk: 2, dmgSides: 8, dmgMod: 0, maxHp: 12, xpValue: 8, speed: 6.6 },
+    ];
 
     while (enemies.length < n && tries < 2000) {
       tries++;
@@ -171,26 +196,29 @@ export class Game {
       const y = 1 + Math.floor(Math.random() * (this.rows - 2));
 
       if (!this.isFloor(x, y)) continue;
-
-      // Don't spawn on player
       if (x === this.player.x && y === this.player.y) continue;
 
-      // Don't spawn too close to player
       const dist = Math.abs(x - this.player.x) + Math.abs(y - this.player.y);
       if (dist < 6) continue;
 
+      const t = templates[Math.floor(Math.random() * templates.length)];
+
       enemies.push({
         id: this.enemyIdCounter++,
-        name: "Void Drone",
+        name: t.name,
         x,
         y,
         px: x,
         py: y,
         dir: { x: 0, y: 0 },
-        nextDir: { x: 0, y: 0 },
-        speed: 7.0,
-        hp: 10,
-        maxHp: 10,
+        speed: t.speed,
+        hp: t.maxHp,
+        maxHp: t.maxHp,
+        ac: t.ac,
+        atk: t.atk,
+        dmgSides: t.dmgSides,
+        dmgMod: t.dmgMod,
+        xpValue: t.xpValue,
         brain: Math.random() < 0.35 ? "chaser" : "wander",
       });
     }
@@ -209,7 +237,6 @@ export class Game {
     if (options.length === 0) return { x: 0, y: 0 };
 
     if (e.brain === "chaser") {
-      // Greedy-ish chase with intentional imperfections
       let best = options[0];
       let bestScore = Infinity;
 
@@ -224,14 +251,12 @@ export class Game {
         }
       }
 
-      // Sometimes choose a random option to avoid being too perfect
       if (Math.random() < 0.25) {
         return options[Math.floor(Math.random() * options.length)];
       }
       return best;
     }
 
-    // Wanderer: avoid reversing unless necessary
     const reverse = { x: -e.dir.x, y: -e.dir.y };
     const nonReverse = options.filter(
       (d) => !(d.x === reverse.x && d.y === reverse.y)
