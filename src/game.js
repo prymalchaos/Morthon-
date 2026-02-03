@@ -12,7 +12,7 @@ export class Game {
     this.renderer = new Renderer(this.ctx);
 
     this.battleUI = new BattleUI();
-    this.mode = "explore"; // "explore" | "battle"
+    this.mode = "explore";
     this.currentEnemyId = null;
 
     this.cols = 21;
@@ -24,6 +24,17 @@ export class Game {
     this.keysHave = 0;
     this.keysNeed = 0;
 
+    // loot pickups
+    this.loot = [];
+
+    // store terminal (one per floor)
+    this.store = {
+      x: -1,
+      y: -1,
+      open: false,
+      usedRerollThisFloor: false
+    };
+
     // boss state
     this.boss = null;
     this.bossPhase = 1;
@@ -31,22 +42,37 @@ export class Game {
     // toast
     this.toast = { text: "", t: 0 };
 
-    // --- FOG OF WAR (soft) ---
+    // fog of war (soft)
     this.fog = {
-      radius: 5,         // how far you can see (grid steps)
-      seen: [],          // persistent memory of tiles seen this floor
-      visible: []        // updated each frame
+      radius: 5,
+      seen: [],
+      visible: []
     };
 
-    // --- DEBUG: allow URL to force a starting floor ---
-    // Use: ?floor=3 or ?level=3
+    // scan (radar pulse)
+    this.scan = {
+      bonusRadius: 4,
+      active: 0,
+      cooldown: 0,
+      duration: 3.0,
+      cooldownMax: 12.0
+    };
+    this.initScanButton();
+
+    // UI overlays (loot choice + store)
+    this.ui = {
+      overlay: null,
+      modal: null
+    };
+    this.initOverlayUI();
+
+    // debug: allow URL to force starting floor
     try {
       const qs = new URLSearchParams(window.location.search);
       const f = parseInt(qs.get("floor") || qs.get("level") || "0", 10);
       if (Number.isFinite(f) && f >= 1) this.floor = f;
     } catch (_) {}
 
-    // --- DEBUG: Level selection panel ---
     this.initDebugPanel();
 
     this.battleUI.onWin = (enemySnapshot) => {
@@ -57,11 +83,10 @@ export class Game {
         return;
       }
 
-      // normal enemy rewards
       const xpGain = enemySnapshot.xpValue ?? 5;
       this.player.stats.xp += xpGain;
 
-      // KEYCARD (every enemy drops one)
+      // every enemy drops a keycard
       this.keysHave = Math.min(this.keysNeed, this.keysHave + 1);
 
       // small heal-on-kill
@@ -71,6 +96,14 @@ export class Game {
       const dropChance = this.floor <= 2 ? 0.55 : 0.35;
       if (Math.random() < dropChance && enemySnapshot?.x != null && enemySnapshot?.y != null) {
         this.medkits.add(`${enemySnapshot.x},${enemySnapshot.y}`);
+      }
+
+      // chance to drop loot pickup
+      if (enemySnapshot?.x != null && enemySnapshot?.y != null) {
+        const lootChance = this.floor <= 2 ? 0.22 : 0.30;
+        if (Math.random() < lootChance) {
+          this.spawnLootAt(enemySnapshot.x, enemySnapshot.y, { source: "drop" });
+        }
       }
 
       // remove defeated enemy
@@ -94,6 +127,86 @@ export class Game {
     };
 
     this.resetRun(true);
+  }
+
+  // ---------- UI: Scan button ----------
+  initScanButton() {
+    const btn = document.createElement("button");
+    btn.textContent = "SCAN";
+    btn.style.position = "fixed";
+    btn.style.right = "10px";
+    btn.style.bottom = "14px";
+    btn.style.zIndex = "9999";
+    btn.style.padding = "10px 12px";
+    btn.style.borderRadius = "12px";
+    btn.style.border = "1px solid rgba(255,255,255,0.20)";
+    btn.style.background = "rgba(30,60,110,0.55)";
+    btn.style.color = "rgba(231,240,255,0.95)";
+    btn.style.fontFamily = "system-ui";
+    btn.style.fontSize = "12px";
+    btn.style.letterSpacing = "0.5px";
+
+    btn.addEventListener("click", () => this.tryScan());
+    document.body.appendChild(btn);
+    this.scanBtn = btn;
+  }
+
+  tryScan() {
+    if (this.mode !== "explore") return;
+    if (this.scan.cooldown > 0) {
+      this.toastMessage(`Scan recharging: ${this.scan.cooldown.toFixed(0)}s`, 1.0);
+      return;
+    }
+    this.scan.active = this.scan.duration;
+    this.scan.cooldown = this.scan.cooldownMax;
+    this.toastMessage(`RADAR PULSE`, 1.0);
+  }
+
+  // ---------- UI: Overlay + Modals (Loot / Store) ----------
+  initOverlayUI() {
+    const overlay = document.createElement("div");
+    overlay.style.position = "fixed";
+    overlay.style.inset = "0";
+    overlay.style.background = "rgba(0,0,0,0.55)";
+    overlay.style.zIndex = "10000";
+    overlay.style.display = "none";
+    overlay.style.alignItems = "center";
+    overlay.style.justifyContent = "center";
+    overlay.style.padding = "14px";
+
+    const modal = document.createElement("div");
+    modal.style.width = "min(520px, 92vw)";
+    modal.style.borderRadius = "14px";
+    modal.style.border = "1px solid rgba(255,255,255,0.18)";
+    modal.style.background = "rgba(5,8,18,0.92)";
+    modal.style.color = "rgba(231,240,255,0.92)";
+    modal.style.fontFamily = "system-ui";
+    modal.style.padding = "14px";
+
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+
+    this.ui.overlay = overlay;
+    this.ui.modal = modal;
+
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) this.closeModal();
+    });
+  }
+
+  openModal(renderFn) {
+    if (!this.ui.overlay || !this.ui.modal) return;
+    this.mode = "modal";
+    this.ui.modal.innerHTML = "";
+    renderFn(this.ui.modal);
+    this.ui.overlay.style.display = "flex";
+  }
+
+  closeModal() {
+    if (!this.ui.overlay) return;
+    this.ui.overlay.style.display = "none";
+    this.ui.modal.innerHTML = "";
+    if (this.mode === "modal") this.mode = "explore";
   }
 
   // ---------- DEBUG UI ----------
@@ -229,7 +342,7 @@ export class Game {
 
     bBoss.addEventListener("click", () => {
       const cur = Math.max(1, parseInt(input.value || "1", 10) || 1);
-      const nextBoss = cur + ((3 - (cur % 3)) % 3); // if already boss, stays
+      const nextBoss = cur + ((3 - (cur % 3)) % 3);
       input.value = String(nextBoss);
       this.setFloor(nextBoss, false);
       this.toastMessage(`Jumped to Boss Floor ${nextBoss}`, 1.6);
@@ -253,15 +366,15 @@ export class Game {
     try { this.battleUI.close(); } catch (_) {}
     this.mode = "explore";
     this.currentEnemyId = null;
+    this.closeModal();
     this.resetRun(fullReset);
     this.toastMessage(`Loaded Floor ${this.floor}${this.isBossFloor(this.floor) ? " (Boss)" : ""}`, 1.4);
   }
 
-  // ---------- FOG OF WAR ----------
+  // ---------- Fog of war ----------
   initFogArrays() {
     const rows = this.grid.length;
     const cols = this.grid[0].length;
-
     this.fog.seen = Array.from({ length: rows }, () => Array(cols).fill(false));
     this.fog.visible = Array.from({ length: rows }, () => Array(cols).fill(false));
   }
@@ -270,12 +383,11 @@ export class Game {
     const rows = this.grid.length;
     const cols = this.grid[0].length;
 
-    // clear visible
-    for (let y = 0; y < rows; y++) {
-      this.fog.visible[y].fill(false);
-    }
+    for (let y = 0; y < rows; y++) this.fog.visible[y].fill(false);
 
-    const r = this.fog.radius | 0;
+    const bonus = (this.scan.active > 0) ? this.scan.bonusRadius : 0;
+    const r = (this.fog.radius + bonus) | 0;
+
     const sx = this.player.x | 0;
     const sy = this.player.y | 0;
 
@@ -283,7 +395,6 @@ export class Game {
     const isWall = (x, y) => this.grid[y][x] === 0;
     const isFloor = (x, y) => this.grid[y][x] === 1;
 
-    // BFS “corridor visibility”: expands through floors, reveals walls but does not see through them.
     const q = [];
     const visited = Array.from({ length: rows }, () => Array(cols).fill(false));
 
@@ -309,20 +420,379 @@ export class Game {
       for (const nb of nbs) {
         if (!inBounds(nb.x, nb.y)) continue;
 
-        // Walls get revealed (softly) but stop propagation
         if (isWall(nb.x, nb.y)) {
           this.fog.visible[nb.y][nb.x] = true;
           this.fog.seen[nb.y][nb.x] = true;
           continue;
         }
 
-        // Floors propagate
         if (isFloor(nb.x, nb.y) && !visited[nb.y][nb.x]) {
           visited[nb.y][nb.x] = true;
           q.push({ x: nb.x, y: nb.y, d: d + 1 });
         }
       }
     }
+  }
+
+  // ---------- Loot ----------
+  rollLootRarity({ source = "floor" } = {}) {
+    // Tune: drops are slightly juicier than floor spawns
+    const r = Math.random();
+    if (source === "boss") return "epic";
+
+    const epicChance = source === "drop" ? 0.05 : 0.03;
+    const rareChance = source === "drop" ? 0.22 : 0.18;
+
+    if (r < epicChance) return "epic";
+    if (r < epicChance + rareChance) return "rare";
+    return "common";
+  }
+
+  spawnLootAt(x, y, { source = "floor" } = {}) {
+    if (this.loot.some(l => l.x === x && l.y === y)) return;
+
+    const type = (Math.random() < 0.55) ? "weapon" : "armor";
+    const rarity = this.rollLootRarity({ source });
+
+    const item = {
+      x, y,
+      type,
+      rarity,
+      // effects are resolved on pickup (so we can scale to current stats/gear)
+      seed: Math.floor(Math.random() * 999999)
+    };
+
+    this.loot.push(item);
+  }
+
+  seedLoot(start) {
+    const isBoss = this.isBossFloor(this.floor);
+
+    // floor loot count
+    const count = isBoss ? 1 : (Math.random() < 0.55 ? 2 : 1);
+    for (let i = 0; i < count; i++) {
+      const p = this.findFarFloorTile(start, 10 + i * 2);
+      this.spawnLootAt(p.x, p.y, { source: "floor" });
+    }
+  }
+
+  rerollLoot() {
+    // Replace all existing loot on the floor with new loot at same positions
+    if (!this.loot.length) return;
+    const positions = this.loot.map(l => ({ x: l.x, y: l.y }));
+    this.loot = [];
+    for (const p of positions) {
+      this.spawnLootAt(p.x, p.y, { source: "floor" });
+    }
+    this.toastMessage("Loot rerolled.", 1.2);
+  }
+
+  lootScrapValue(item) {
+    if (item.rarity === "epic") return 18;
+    if (item.rarity === "rare") return 9;
+    return 4;
+  }
+
+  describeLoot(item) {
+    const rarityName = item.rarity.toUpperCase();
+    const typeName = item.type === "weapon" ? "Weapon Cache" : "Armor Cache";
+
+    const lines = [];
+    lines.push(`${rarityName} ${typeName}`);
+
+    if (item.rarity === "common") {
+      lines.push(item.type === "weapon" ? "+1 Weapon Tier" : "+1 Armor Tier");
+    } else if (item.rarity === "rare") {
+      if (item.type === "weapon") lines.push("+1 Weapon Tier, +1 ATK (burst)");
+      else lines.push("+1 Armor Tier, +2 Max HP");
+    } else {
+      // epic
+      if (item.type === "weapon") lines.push("+1 Weapon Tier, Passive: Overclock (chance for +1 die)");
+      else lines.push("+1 Armor Tier, Passive: Reactive Plating (-1 dmg once per battle)");
+    }
+
+    return lines;
+  }
+
+  applyLoot(item) {
+    const ps = this.player.stats;
+
+    if (item.type === "weapon") {
+      this.player.gear.weaponTier = Math.min(6, (this.player.gear.weaponTier || 1) + 1);
+
+      // Rare: immediate ATK bump
+      if (item.rarity === "rare") {
+        ps.atk += 1;
+      }
+
+      // Epic passive: Overclock (chance to add 1 damage die on your attacks)
+      if (item.rarity === "epic") {
+        ps.passives = ps.passives || {};
+        ps.passives.overclock = true;
+      }
+
+      this.toastMessage(`Weapon upgraded (${item.rarity}).`, 1.4);
+      return;
+    }
+
+    if (item.type === "armor") {
+      this.player.gear.armorTier = Math.min(6, (this.player.gear.armorTier || 1) + 1);
+
+      // baseline armor effect
+      ps.ac += 1;
+
+      // Rare: max HP bump
+      if (item.rarity === "rare") {
+        ps.maxHp += 2;
+        ps.hp = Math.min(ps.maxHp, ps.hp + 2);
+      }
+
+      // Epic passive: Reactive Plating (once per battle reduce damage by 1)
+      if (item.rarity === "epic") {
+        ps.passives = ps.passives || {};
+        ps.passives.reactivePlating = true;
+      }
+
+      this.toastMessage(`Armor upgraded (${item.rarity}).`, 1.4);
+    }
+  }
+
+  pickupLootIfAny() {
+    const px = this.player.x;
+    const py = this.player.y;
+
+    const idx = this.loot.findIndex(l => l.x === px && l.y === py);
+    if (idx === -1) return;
+
+    const item = this.loot[idx];
+    // remove from floor immediately so you can’t re-trigger
+    this.loot.splice(idx, 1);
+
+    this.openLootChoice(item);
+  }
+
+  openLootChoice(item) {
+    const scrapValue = this.lootScrapValue(item);
+    const lines = this.describeLoot(item);
+
+    const mkBtn = (txt) => {
+      const b = document.createElement("button");
+      b.textContent = txt;
+      b.style.padding = "10px 10px";
+      b.style.borderRadius = "12px";
+      b.style.border = "1px solid rgba(255,255,255,0.18)";
+      b.style.background = "rgba(231,240,255,0.08)";
+      b.style.color = "rgba(231,240,255,0.92)";
+      b.style.fontFamily = "system-ui";
+      b.style.fontSize = "14px";
+      b.style.width = "100%";
+      b.style.marginTop = "10px";
+      return b;
+    };
+
+    this.openModal((root) => {
+      const h = document.createElement("div");
+      h.textContent = "SALVAGE";
+      h.style.fontSize = "14px";
+      h.style.fontWeight = "700";
+      h.style.letterSpacing = "0.8px";
+      h.style.opacity = "0.95";
+
+      const body = document.createElement("div");
+      body.style.marginTop = "10px";
+      body.style.lineHeight = "1.35";
+
+      const card = document.createElement("div");
+      card.style.padding = "12px";
+      card.style.borderRadius = "12px";
+      card.style.border = "1px solid rgba(255,255,255,0.14)";
+      card.style.background = "rgba(231,240,255,0.05)";
+
+      const t = document.createElement("div");
+      t.textContent = lines[0];
+      t.style.fontWeight = "700";
+      t.style.marginBottom = "6px";
+
+      card.appendChild(t);
+
+      for (let i = 1; i < lines.length; i++) {
+        const li = document.createElement("div");
+        li.textContent = `• ${lines[i]}`;
+        li.style.opacity = "0.9";
+        card.appendChild(li);
+      }
+
+      const sub = document.createElement("div");
+      sub.style.marginTop = "10px";
+      sub.style.opacity = "0.8";
+      sub.textContent = `Scrap value: +${scrapValue} SCRAP`;
+
+      const bTake = mkBtn("TAKE");
+      bTake.style.background = "rgba(120,255,220,0.10)";
+      bTake.addEventListener("click", () => {
+        this.applyLoot(item);
+        this.closeModal();
+      });
+
+      const bScrap = mkBtn(`SCRAP (+${scrapValue})`);
+      bScrap.style.background = "rgba(255,210,120,0.10)";
+      bScrap.addEventListener("click", () => {
+        this.player.stats.scrap = (this.player.stats.scrap || 0) + scrapValue;
+        this.toastMessage(`Scrapped for +${scrapValue} scrap.`, 1.2);
+        this.closeModal();
+      });
+
+      const bClose = mkBtn("CLOSE");
+      bClose.style.background = "rgba(231,240,255,0.05)";
+      bClose.addEventListener("click", () => this.closeModal());
+
+      body.appendChild(card);
+      body.appendChild(sub);
+      body.appendChild(bTake);
+      body.appendChild(bScrap);
+      body.appendChild(bClose);
+
+      root.appendChild(h);
+      root.appendChild(body);
+    });
+  }
+
+  // ---------- Store ----------
+  placeStore(start) {
+    const p = this.findFarFloorTile(start, 11);
+    this.store.x = p.x;
+    this.store.y = p.y;
+    this.store.open = false;
+    this.store.usedRerollThisFloor = false;
+  }
+
+  openStore() {
+    this.store.open = true;
+
+    const mkBtn = (txt) => {
+      const b = document.createElement("button");
+      b.textContent = txt;
+      b.style.padding = "10px 10px";
+      b.style.borderRadius = "12px";
+      b.style.border = "1px solid rgba(255,255,255,0.18)";
+      b.style.background = "rgba(231,240,255,0.08)";
+      b.style.color = "rgba(231,240,255,0.92)";
+      b.style.fontFamily = "system-ui";
+      b.style.fontSize = "14px";
+      b.style.width = "100%";
+      b.style.marginTop = "10px";
+      return b;
+    };
+
+    const costMedkit = 8;
+    const costHeal = 6;
+    const costScan = 10;
+    const costReroll = 12;
+    const costPanic = 9;
+
+    const buy = (cost, fn, failMsg) => {
+      const scrap = this.player.stats.scrap || 0;
+      if (scrap < cost) {
+        this.toastMessage(failMsg || `Not enough scrap.`, 1.2);
+        return false;
+      }
+      this.player.stats.scrap = scrap - cost;
+      fn();
+      return true;
+    };
+
+    this.openModal((root) => {
+      const h = document.createElement("div");
+      h.textContent = "STORE TERMINAL";
+      h.style.fontSize = "14px";
+      h.style.fontWeight = "700";
+      h.style.letterSpacing = "0.8px";
+
+      const s = document.createElement("div");
+      s.style.marginTop = "8px";
+      s.style.opacity = "0.85";
+      s.textContent = `Scrap: ${this.player.stats.scrap || 0}`;
+
+      const card = document.createElement("div");
+      card.style.marginTop = "10px";
+      card.style.padding = "12px";
+      card.style.borderRadius = "12px";
+      card.style.border = "1px solid rgba(255,255,255,0.14)";
+      card.style.background = "rgba(231,240,255,0.05)";
+      card.style.lineHeight = "1.35";
+      card.innerHTML =
+        `<div style="font-weight:700;margin-bottom:6px;">Available</div>
+         <div style="opacity:0.9;">• Buy sustain, tune Scan, or gamble a reroll.</div>
+         <div style="opacity:0.9;">• Spend scrap (from scrapping loot).</div>`;
+
+      const bMed = mkBtn(`Buy Medkit (+7 HP pickup)  [${costMedkit} scrap]`);
+      bMed.addEventListener("click", () => {
+        buy(costMedkit, () => {
+          // spawn medkit on the terminal tile (so you pick it up immediately by stepping back on it)
+          this.medkits.add(`${this.store.x},${this.store.y}`);
+          this.toastMessage("Medkit delivered.", 1.2);
+          this.closeModal();
+        }, `Need ${costMedkit} scrap.`);
+      });
+
+      const bHeal = mkBtn(`Repair (+6 HP now)  [${costHeal} scrap]`);
+      bHeal.addEventListener("click", () => {
+        buy(costHeal, () => {
+          this.healPlayer(6);
+          this.toastMessage("+6 HP", 1.0);
+          this.closeModal();
+        }, `Need ${costHeal} scrap.`);
+      });
+
+      const bScan = mkBtn(`Scan Cooler (−2s cooldown this run)  [${costScan} scrap]`);
+      bScan.addEventListener("click", () => {
+        buy(costScan, () => {
+          this.scan.cooldownMax = Math.max(6, this.scan.cooldownMax - 2);
+          this.toastMessage(`Scan cooldown now ${this.scan.cooldownMax.toFixed(0)}s`, 1.4);
+          this.closeModal();
+        }, `Need ${costScan} scrap.`);
+      });
+
+      const bPanic = mkBtn(`Panic Battery (+1 free Panic)  [${costPanic} scrap]`);
+      bPanic.addEventListener("click", () => {
+        buy(costPanic, () => {
+          this.player.stats.panicCharges = (this.player.stats.panicCharges || 0) + 1;
+          this.toastMessage("Panic charge acquired.", 1.2);
+          this.closeModal();
+        }, `Need ${costPanic} scrap.`);
+      });
+
+      const bReroll = mkBtn(
+        this.store.usedRerollThisFloor
+          ? `Reroll Loot (used)  [${costReroll} scrap]`
+          : `Reroll Loot (1x per floor)  [${costReroll} scrap]`
+      );
+      bReroll.style.opacity = this.store.usedRerollThisFloor ? "0.55" : "1";
+      bReroll.disabled = this.store.usedRerollThisFloor;
+
+      bReroll.addEventListener("click", () => {
+        if (this.store.usedRerollThisFloor) return;
+        buy(costReroll, () => {
+          this.rerollLoot();
+          this.store.usedRerollThisFloor = true;
+          this.closeModal();
+        }, `Need ${costReroll} scrap.`);
+      });
+
+      const bClose = mkBtn("CLOSE");
+      bClose.style.background = "rgba(231,240,255,0.05)";
+      bClose.addEventListener("click", () => this.closeModal());
+
+      root.appendChild(h);
+      root.appendChild(s);
+      root.appendChild(card);
+      root.appendChild(bMed);
+      root.appendChild(bHeal);
+      root.appendChild(bScan);
+      root.appendChild(bPanic);
+      root.appendChild(bReroll);
+      root.appendChild(bClose);
+    });
   }
 
   // ---------- Run / Floors ----------
@@ -338,6 +808,7 @@ export class Game {
     this.exit = exit;
 
     this.medkits = new Set();
+    this.loot = [];
     this.currentEnemyId = null;
 
     if (fullReset || !this.player) {
@@ -357,7 +828,10 @@ export class Game {
           str: 2,
           int: 1,
           xp: 0,
-          _pellets: 0
+          _pellets: 0,
+          scrap: 0,
+          panicCharges: 0,
+          passives: {}
         },
         gear: {
           weaponTier: 1,
@@ -377,6 +851,9 @@ export class Game {
       this.healPlayer(heal);
     }
 
+    // reset per-floor store state
+    this.placeStore(start);
+
     // init fog per floor
     this.initFogArrays();
 
@@ -386,10 +863,12 @@ export class Game {
       this.spawnNormalFloor(start);
     }
 
+    // seed floor loot after spawns
+    this.seedLoot(start);
+
     this.mode = "explore";
     this.toastMessage(this.isBossFloor(this.floor) ? `BOSS FLOOR: Hunt the serpent.` : `Hunt keycards to unlock the exit.`);
 
-    // compute first visibility immediately
     this.computeVisibility();
   }
 
@@ -470,35 +949,29 @@ export class Game {
       const drop = this.findFarFloorTile(start, 8);
       this.medkits.add(`${drop.x},${drop.y}`);
 
+      // boss phase drops a guaranteed floor loot (rare/epic skew)
+      const lp = this.findFarFloorTile(start, 9);
+      this.spawnLootAt(lp.x, lp.y, { source: "drop" });
+
       this.healPlayer(4);
       return;
     }
 
     this.keysHave = this.keysNeed;
-    this.toastMessage(`Boss defeated! Loot acquired.`);
-    this.applyBossLoot();
+    this.toastMessage(`Boss defeated! Loot cache dropped.`, 1.4);
+
+    // Boss drops a guaranteed EPIC loot pickup (choice-based like everything else)
+    const start = { x: this.player.x, y: this.player.y };
+    const p = this.findFarFloorTile(start, 6);
+    // Force epic by passing source boss
+    const type = (Math.random() < 0.5) ? "weapon" : "armor";
+    this.loot.push({ x: p.x, y: p.y, type, rarity: "epic", seed: Math.floor(Math.random() * 999999) });
+
     this.enemies = [];
     this.boss = null;
     this.bossPhase = 1;
 
     this.healPlayer(8);
-  }
-
-  applyBossLoot() {
-    const roll = Math.random();
-    if (roll < 0.55) {
-      this.player.gear.weaponTier = Math.min(6, (this.player.gear.weaponTier || 1) + 1);
-      const t = this.player.gear.weaponTier;
-      this.toastMessage(`Loot: Weapon upgraded to Tier ${t}.`);
-      if (t % 2 === 0) this.player.stats.atk += 1;
-    } else {
-      this.player.gear.armorTier = Math.min(6, (this.player.gear.armorTier || 1) + 1);
-      const t = this.player.gear.armorTier;
-      this.toastMessage(`Loot: Armor upgraded to Tier ${t}.`);
-      this.player.stats.ac += 1;
-      this.player.stats.maxHp += 2;
-      this.player.stats.hp = Math.min(this.player.stats.maxHp, this.player.stats.hp + 2);
-    }
   }
 
   // ---------- Utilities ----------
@@ -523,6 +996,7 @@ export class Game {
       const y = 1 + Math.floor(Math.random() * (this.rows - 2));
       if (!this.isFloor(x, y)) continue;
       if (this.exit && x === this.exit.x && y === this.exit.y) continue;
+      if (x === this.store.x && y === this.store.y) continue;
 
       const dist = Math.abs(x - start.x) + Math.abs(y - start.y);
       if (dist < 10) continue;
@@ -564,7 +1038,22 @@ export class Game {
       if (this.toast.t === 0) this.toast.text = "";
     }
 
-    if (this.mode === "battle") return;
+    // scan timers
+    if (this.scan.active > 0) this.scan.active = Math.max(0, this.scan.active - dt);
+    if (this.scan.cooldown > 0) this.scan.cooldown = Math.max(0, this.scan.cooldown - dt);
+
+    // update scan button label
+    if (this.scanBtn) {
+      if (this.scan.cooldown > 0) {
+        this.scanBtn.textContent = `SCAN ${this.scan.cooldown.toFixed(0)}s`;
+        this.scanBtn.style.opacity = "0.7";
+      } else {
+        this.scanBtn.textContent = "SCAN";
+        this.scanBtn.style.opacity = "1";
+      }
+    }
+
+    if (this.mode === "battle" || this.mode === "modal") return;
 
     const wanted = this.input.consumeDirection();
     if (wanted) this.player.nextDir = wanted;
@@ -576,7 +1065,6 @@ export class Game {
       if (e.isBoss) this.updateBossTrail(e);
     }
 
-    // recompute fog each frame (cheap at this grid size)
     this.computeVisibility();
 
     const pkey = `${this.player.x},${this.player.y}`;
@@ -595,6 +1083,16 @@ export class Game {
       this.toastMessage(`+7 HP (Medkit)`, 1.2);
     }
 
+    // loot pickup -> opens choice modal
+    this.pickupLootIfAny();
+
+    // store terminal interaction
+    if (this.player.x === this.store.x && this.player.y === this.store.y) {
+      // only open if not already open and if no modal currently
+      this.openStore();
+      return;
+    }
+
     if (this.exit && this.player.x === this.exit.x && this.player.y === this.exit.y) {
       if (this.keysHave >= this.keysNeed) {
         this.nextFloor();
@@ -608,6 +1106,10 @@ export class Game {
     if (hit) {
       this.mode = "battle";
       this.currentEnemyId = hit.id;
+
+      // reset per-battle reactive plating usage flag
+      this.player.stats._reactiveUsed = false;
+
       this.battleUI.open(hit, this.player);
     }
   }
@@ -631,6 +1133,8 @@ export class Game {
       this.grid,
       this.pellets,
       this.medkits,
+      this.loot,
+      this.store,
       this.player,
       this.enemies,
       this.exit,
@@ -638,7 +1142,8 @@ export class Game {
       this.keysHave,
       this.keysNeed,
       this.toast,
-      this.fog
+      this.fog,
+      this.scan
     );
   }
 
@@ -719,6 +1224,7 @@ export class Game {
       if (!this.isFloor(x, y)) continue;
       if (x === this.player.x && y === this.player.y) continue;
       if (this.exit && x === this.exit.x && y === this.exit.y) continue;
+      if (x === this.store.x && y === this.store.y) continue;
 
       const dist = Math.abs(x - this.player.x) + Math.abs(y - this.player.y);
       if (dist < 6) continue;
@@ -729,7 +1235,7 @@ export class Game {
       enemies.push({
         id: this.enemyIdCounter++,
         name: t.name,
-        weaponType: t.weaponType,
+        weaponType: t.weaponType, // first stance (revealed once)
         x,
         y,
         px: x,
