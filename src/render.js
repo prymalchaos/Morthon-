@@ -15,13 +15,11 @@ export class Renderer{
     const rows = grid.length;
     const cols = grid[0].length;
 
-    // Fit grid to canvas with padding
     const pad = 20 * this.dpr;
     const cell = Math.floor(Math.min((this.vw - pad*2) / cols, (this.vh - pad*2) / rows));
     const ox = Math.floor((this.vw - cell*cols) / 2);
     const oy = Math.floor((this.vh - cell*rows) / 2);
 
-    // Background
     ctx.fillStyle = "#050812";
     ctx.fillRect(0,0,this.vw,this.vh);
 
@@ -47,15 +45,7 @@ export class Renderer{
       ctx.fill();
     }
 
-    // Player (smooth position)
-    const px = ox + player.px*cell + cell/2;
-    const py = oy + player.py*cell + cell/2;
-    ctx.fillStyle = "rgba(120,255,220,0.95)";
-    ctx.beginPath();
-    ctx.arc(px, py, Math.floor(cell*0.32), 0, Math.PI*2);
-    ctx.fill();
-    
-        // Enemies
+    // Enemies
     for (const e of enemies){
       const ex = ox + e.px*cell + cell/2;
       const ey = oy + e.py*cell + cell/2;
@@ -65,7 +55,6 @@ export class Renderer{
       ctx.arc(ex, ey, Math.floor(cell*0.30), 0, Math.PI*2);
       ctx.fill();
 
-      // little “visor” line for vibe
       ctx.strokeStyle = "rgba(5,8,18,0.75)";
       ctx.lineWidth = Math.max(1, Math.floor(2*this.dpr));
       ctx.beginPath();
@@ -74,9 +63,18 @@ export class Renderer{
       ctx.stroke();
     }
 
-    // Tiny HUD
-    ctx.fillStyle = "rgba(231,240,255,0.85)";
+    // Player
+    const px = ox + player.px*cell + cell/2;
+    const py = oy + player.py*cell + cell/2;
+    ctx.fillStyle = "rgba(120,255,220,0.95)";
+    ctx.beginPath();
+    ctx.arc(px, py, Math.floor(cell*0.32), 0, Math.PI*2);
+    ctx.fill();
+
+    // HUD
+    ctx.fillStyle = "rgba(231,240,255,0.88)";
     ctx.font = `${14*this.dpr}px system-ui`;
     ctx.fillText(`Loot: ${pellets.size}`, 12*this.dpr, 18*this.dpr);
+    ctx.fillText(`HP: ${player.stats.hp}/${player.stats.maxHp}  XP: ${player.stats.xp}`, 12*this.dpr, 38*this.dpr);
   }
 }
