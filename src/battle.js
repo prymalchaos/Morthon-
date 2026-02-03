@@ -23,13 +23,16 @@ export class BattleUI{
     this.turn = "player"; // player | enemy | end
     this.enemy = null;
 
-    // we now receive the full player object so we can read gear tiers
     this.player = null; // { stats, gear }
 
     this.temp = {
       guarding: false,
       guardDR: 0
     };
+
+    // ---- NEW: stance reveal only for the first exchange ----
+    this.stanceKnown = true;       // true only at combat start
+    this.firstActionTaken = false; // after first player action, stanceKnown becomes false
 
     this.onWin = null;   // (enemySnapshot) => void
     this.onLose = null;  // () => void
@@ -55,6 +58,9 @@ export class BattleUI{
 
     this.temp.guarding = false;
     this.temp.guardDR = 0;
+
+    this.stanceKnown = true;
+    this.firstActionTaken = false;
 
     this.el.classList.remove("hidden");
     this.clearLog();
@@ -114,6 +120,11 @@ export class BattleUI{
     return "dis";
   }
 
+  randomWeapon(){
+    const r = this.rollDie(3);
+    return r === 1 ? "sword" : (r === 2 ? "gun" : "shield");
+  }
+
   prettyWeapon(w){
     if (w === "sword") return "Sword";
     if (w === "gun") return "Gun";
@@ -126,6 +137,16 @@ export class BattleUI{
     if (w === "gun") return "withdraws a gun.";
     if (w === "shield") return "raises a shield.";
     return "prepares.";
+  }
+
+  updateStanceUI(){
+    if (!this.subEl) return;
+    const bossTag = this.enemy?.isBoss ? ` | Boss Phase ${this.enemy.phase}/3` : "";
+    if (this.stanceKnown){
+      this.subEl.textContent = `Enemy stance: ${this.prettyWeapon(this.enemy.weaponType)}${bossTag}`;
+    } else {
+      this.subEl.textContent = `Enemy stance: ???${bossTag}`;
+    }
   }
 
   // ---------- Dice ----------
@@ -169,28 +190,30 @@ export class BattleUI{
     return baseCount;
   }
 
-  // Gear scaling: tiers feel huge immediately, but enemies scale too.
-  // Tier 1: Sword d8, Gun d6
-  // Tier 2: Sword d10, Gun d8
-  // Tier 3+: Sword 2d8 (+), Gun 2d6 (+) with +1 dmg per tier above 3
   weaponProfile(kind){
     const tier = this.player?.gear?.weaponTier ?? 1;
 
     if (tier === 1) return { count: 1, sides: (kind === "sword") ? 8 : 6, flat: 0 };
     if (tier === 2) return { count: 1, sides: (kind === "sword") ? 10 : 8, flat: 0 };
 
-    // tier 3+
     const extra = Math.max(0, tier - 3);
     return {
       count: 2,
       sides: (kind === "sword") ? 8 : 6,
-      flat: extra // gentle ramp
+      flat: extra
     };
   }
 
   // ---------- Combat ----------
   playerAction(kind){
     if (!this.isOpen || this.turn !== "player") return;
+
+    // First player action flips stance visibility OFF for the rest of the fight
+    if (!this.firstActionTaken){
+      this.firstActionTaken = true;
+      this.stanceKnown = false;
+      this.updateStanceUI();
+    }
 
     // New action cancels guard
     this.temp.guarding = false;
@@ -199,6 +222,12 @@ export class BattleUI{
     this.setButtonsEnabled(false);
 
     const ps = this.player.stats;
+
+    // After the first exchange, the enemy stance becomes unpredictable
+    // We randomize enemy stance right before resolving THIS action.
+    if (!this.stanceKnown){
+      this.enemy.weaponType = this.randomWeapon();
+    }
 
     if (kind === "shield"){
       this.temp.guarding = true;
@@ -245,9 +274,11 @@ export class BattleUI{
     const isCrit = (d20.roll === 20);
     const hit = isCrit || totalToHit >= this.enemy.ac;
 
+    // NOTE: we no longer tell the player what the enemy stance is after the first exchange.
+    // We still log advantage/disadvantage outcome because that’s what you *feel* in the fight.
     const tag = (mode === "adv") ? "Advantage" : (mode === "dis") ? "Disadvantage" : "Neutral";
     this.syncUI(`${d20.text} +${atkMod} = ${totalToHit}`);
-    this.log(`${this.prettyWeapon(playerW)} vs ${this.prettyWeapon(enemyW)}: ${tag}.`);
+    this.log(`${this.prettyWeapon(playerW)} clash: ${tag}.`);
 
     if (!hit){
       this.log(`Miss. (${totalToHit} vs AC ${this.enemy.ac})`);
@@ -278,16 +309,20 @@ export class BattleUI{
     if (!this.isOpen || this.turn !== "enemy") return;
 
     const ps = this.player.stats;
+
+    // After the first exchange, enemy stance randomizes each time it acts, too.
+    if (!this.stanceKnown){
+      this.enemy.weaponType = this.randomWeapon();
+    }
     const enemyW = this.enemy.weaponType || "sword";
 
-    // If guarding, enemy matchups vs Shield apply
     const modeVsGuard = this.temp.guarding ? this.matchup(enemyW, "shield") : "neutral";
 
     if (this.temp.guarding){
       const tag = (modeVsGuard === "adv") ? "Advantage" : (modeVsGuard === "dis") ? "Disadvantage" : "Neutral";
-      this.log(`${this.enemy.name} attacks into your Shield: ${tag}. (${this.prettyWeapon(enemyW)})`);
+      this.log(`${this.enemy.name} attacks into your Shield: ${tag}.`);
     } else {
-      this.log(`${this.enemy.name} attacks. (${this.prettyWeapon(enemyW)})`);
+      this.log(`${this.enemy.name} attacks.`);
     }
 
     const atkMod = this.enemy.atk || 0;
