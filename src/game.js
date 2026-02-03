@@ -24,23 +24,38 @@ export class Game {
     this.keysHave = 0;
     this.keysNeed = 0;
 
+    // boss state
+    this.boss = null; // stored as an "enemy" object when boss floor
+    this.bossPhase = 1;
+
+    // toast
+    this.toast = { text: "", t: 0 };
+
     this.battleUI.onWin = (enemySnapshot) => {
+      const isBoss = !!enemySnapshot.isBoss;
+
+      if (isBoss){
+        this.handleBossPhaseWin(enemySnapshot);
+        return;
+      }
+
+      // normal enemy rewards
       const xpGain = enemySnapshot.xpValue ?? 5;
       this.player.stats.xp += xpGain;
 
       // KEYCARD (every enemy drops one)
       this.keysHave = Math.min(this.keysNeed, this.keysHave + 1);
 
-      // Small heal-on-kill
+      // small heal-on-kill
       this.healPlayer(2);
 
-      // Chance to drop medkit on enemy tile
+      // chance to drop medkit
       const dropChance = this.floor <= 2 ? 0.55 : 0.35;
       if (Math.random() < dropChance && enemySnapshot?.x != null && enemySnapshot?.y != null){
         this.medkits.add(`${enemySnapshot.x},${enemySnapshot.y}`);
       }
 
-      // Remove defeated enemy
+      // remove defeated enemy
       if (this.currentEnemyId != null) {
         this.enemies = this.enemies.filter((e) => e.id !== this.currentEnemyId);
         this.currentEnemyId = null;
@@ -62,6 +77,11 @@ export class Game {
     this.resetRun(true);
   }
 
+  // ---------- Run / Floors ----------
+  isBossFloor(floor){
+    return floor % 3 === 0;
+  }
+
   resetRun(fullReset = false) {
     const { grid, pellets, start, exit } = generateMaze(this.cols, this.rows);
 
@@ -70,6 +90,7 @@ export class Game {
     this.exit = exit;
 
     this.medkits = new Set();
+    this.currentEnemyId = null;
 
     if (fullReset || !this.player) {
       this.player = {
@@ -90,9 +111,14 @@ export class Game {
           xp: 0,
           _pellets: 0
         },
-        // player choices are handled in battle UI (Sword / Gun / Shield)
+        gear: {
+          weaponTier: 1,
+          armorTier: 1
+        }
       };
+      this.keysHave = 0;
     } else {
+      // carry to next floor
       this.player.x = start.x;
       this.player.y = start.y;
       this.player.px = start.x;
@@ -104,16 +130,154 @@ export class Game {
       this.healPlayer(heal);
     }
 
-    // Enemies + key requirement
+    // boss vs normal floors
+    if (this.isBossFloor(this.floor)){
+      this.spawnBossFloor(start);
+    } else {
+      this.spawnNormalFloor(start);
+    }
+
+    this.mode = "explore";
+    this.toastMessage(this.isBossFloor(this.floor) ? `BOSS FLOOR: Hunt the serpent.` : `Hunt keycards to unlock the exit.`);
+  }
+
+  spawnNormalFloor(start){
+    this.boss = null;
+    this.bossPhase = 1;
+
     this.enemyIdCounter = 1;
     this.enemies = this.spawnEnemies(this.enemyCountForFloor(this.floor));
     this.keysNeed = this.enemies.length;
     this.keysHave = 0;
-    this.currentEnemyId = null;
 
+    // seed a medkit
     this.seedOneMedkitFarFromStart(start);
+  }
 
-    this.mode = "explore";
+  spawnBossFloor(start){
+    // No regular enemies: the boss is the key
+    this.enemies = [];
+    this.keysNeed = 3; // each phase effectively grants a "key"
+    this.keysHave = 0;
+
+    this.bossPhase = 1;
+    this.boss = this.spawnBoss(start);
+    this.enemies.push(this.boss);
+
+    // boss floor gets 2 medkits seeded
+    this.seedOneMedkitFarFromStart(start);
+    this.seedOneMedkitFarFromStart(start);
+  }
+
+  nextFloor(){
+    this.floor += 1;
+    this.resetRun(false);
+  }
+
+  // ---------- Boss ----------
+  spawnBoss(start){
+    const pos = this.findFarFloorTile(start, 14);
+
+    // A simple serpent/dragon head that moves like a roaming enemy
+    const weaponCycle = ["sword", "gun", "shield"]; // phase stance
+    const w = weaponCycle[this.bossPhase - 1] || "sword";
+
+    const baseHp = 18 + Math.floor(this.floor * 1.5);
+    const phaseHp = Math.floor(baseHp * (0.85 + 0.10*(this.bossPhase-1))); // rises slightly per phase
+
+    return {
+      id: 999,
+      isBoss: true,
+      name: "Void Serpent",
+      phase: this.bossPhase,
+      weaponType: w,
+      x: pos.x, y: pos.y,
+      px: pos.x, py: pos.y,
+      dir: { x: 0, y: 0 },
+      speed: 6.2,
+      hp: phaseHp,
+      maxHp: phaseHp,
+      ac: 13 + Math.floor(this.floor * 0.2),
+      atk: 3 + Math.floor(this.floor * 0.15),
+      dmgSides: 8,
+      dmgMod: 1,
+      xpValue: 20 + this.floor * 2,
+      brain: "chaser",
+      trail: [] // for rendering body segments
+    };
+  }
+
+  handleBossPhaseWin(enemySnapshot){
+    // A boss "win" means the current phase HP was reduced to 0.
+    // If phase < 3: retreat, heal to next phase HP, change stance, relocate.
+    if (this.bossPhase < 3){
+      this.bossPhase += 1;
+      this.keysHave = Math.min(this.keysNeed, this.keysHave + 1);
+
+      this.toastMessage(`Boss retreats! Phase ${this.bossPhase}/3… hunt it down.`);
+
+      // relocate and rebuild boss for next phase
+      const start = { x: this.player.x, y: this.player.y };
+      this.boss = this.spawnBoss(start);
+      this.boss.phase = this.bossPhase;
+
+      // Replace boss in enemies list
+      this.enemies = [this.boss];
+
+      // Reward: guaranteed medkit drop somewhere near-ish
+      const drop = this.findFarFloorTile(start, 8);
+      this.medkits.add(`${drop.x},${drop.y}`);
+
+      // Small between-phase heal
+      this.healPlayer(4);
+      return;
+    }
+
+    // Final phase defeated
+    this.keysHave = this.keysNeed; // unlock exit
+    this.toastMessage(`Boss defeated! Loot acquired.`);
+    this.applyBossLoot();
+    this.enemies = []; // boss gone
+    this.boss = null;
+    this.bossPhase = 1;
+
+    // Big heal after victory
+    this.healPlayer(8);
+  }
+
+  applyBossLoot(){
+    // Choose one upgrade: weapon or armor
+    const roll = Math.random();
+    if (roll < 0.55){
+      // weapon upgrade
+      this.player.gear.weaponTier = Math.min(6, (this.player.gear.weaponTier || 1) + 1);
+      const t = this.player.gear.weaponTier;
+      this.toastMessage(`Loot: Weapon upgraded to Tier ${t}.`);
+      // small atk bump every other tier
+      if (t % 2 === 0) this.player.stats.atk += 1;
+    } else {
+      // armor upgrade
+      this.player.gear.armorTier = Math.min(6, (this.player.gear.armorTier || 1) + 1);
+      const t = this.player.gear.armorTier;
+      this.toastMessage(`Loot: Armor upgraded to Tier ${t}.`);
+      this.player.stats.ac += 1;
+      this.player.stats.maxHp += 2;
+      this.player.stats.hp = Math.min(this.player.stats.maxHp, this.player.stats.hp + 2);
+    }
+  }
+
+  // ---------- Utilities ----------
+  toastMessage(text, seconds = 2.2){
+    this.toast.text = text;
+    this.toast.t = seconds;
+  }
+
+  healPlayer(amount){
+    this.player.stats.hp = Math.min(this.player.stats.maxHp, this.player.stats.hp + amount);
+  }
+
+  enemyCountForFloor(floor){
+    return Math.min(10, 4 + Math.floor((floor - 1) * 0.8));
   }
 
   seedOneMedkitFarFromStart(start){
@@ -124,28 +288,30 @@ export class Game {
       const y = 1 + Math.floor(Math.random() * (this.rows - 2));
       if (!this.isFloor(x,y)) continue;
       if (this.exit && x === this.exit.x && y === this.exit.y) continue;
-
       const dist = Math.abs(x - start.x) + Math.abs(y - start.y);
       if (dist < 10) continue;
-
       this.medkits.add(`${x},${y}`);
       return;
     }
   }
 
-  enemyCountForFloor(floor){
-    return Math.min(10, 4 + Math.floor((floor - 1) * 0.8));
+  findFarFloorTile(from, minDist){
+    let tries = 0;
+    while (tries < 4000){
+      tries++;
+      const x = 1 + Math.floor(Math.random() * (this.cols - 2));
+      const y = 1 + Math.floor(Math.random() * (this.rows - 2));
+      if (!this.isFloor(x,y)) continue;
+      if (this.exit && x === this.exit.x && y === this.exit.y) continue;
+      const dist = Math.abs(x - from.x) + Math.abs(y - from.y);
+      if (dist < minDist) continue;
+      return { x, y };
+    }
+    // fallback
+    return { x: from.x, y: from.y };
   }
 
-  nextFloor(){
-    this.floor += 1;
-    this.resetRun(false);
-  }
-
-  healPlayer(amount){
-    this.player.stats.hp = Math.min(this.player.stats.maxHp, this.player.stats.hp + amount);
-  }
-
+  // ---------- Engine ----------
   resize() {
     const dpr = Math.max(1, Math.floor(window.devicePixelRatio || 1));
     const rect = this.canvas.getBoundingClientRect();
@@ -155,6 +321,12 @@ export class Game {
   }
 
   update(dt) {
+    // toast time
+    if (this.toast.t > 0){
+      this.toast.t = Math.max(0, this.toast.t - dt);
+      if (this.toast.t === 0) this.toast.text = "";
+    }
+
     if (this.mode === "battle") return;
 
     const wanted = this.input.consumeDirection();
@@ -164,6 +336,11 @@ export class Game {
 
     for (const e of this.enemies) {
       this.stepEnemy(e, dt);
+
+      // Boss trail update
+      if (e.isBoss){
+        this.updateBossTrail(e);
+      }
     }
 
     // Pellet pickup (every 6 pellets = +1 HP)
@@ -180,12 +357,15 @@ export class Game {
     if (this.medkits.has(pkey)){
       this.medkits.delete(pkey);
       this.healPlayer(7);
+      this.toastMessage(`+7 HP (Medkit)`, 1.2);
     }
 
     // Exit locked until keys collected
     if (this.exit && this.player.x === this.exit.x && this.player.y === this.exit.y) {
       if (this.keysHave >= this.keysNeed){
         this.nextFloor();
+      } else {
+        this.toastMessage(`Exit locked. Keys: ${this.keysHave}/${this.keysNeed}`, 1.0);
       }
       return;
     }
@@ -195,7 +375,23 @@ export class Game {
     if (hit) {
       this.mode = "battle";
       this.currentEnemyId = hit.id;
-      this.battleUI.open(hit, this.player.stats);
+      this.battleUI.open(hit, this.player);
+    }
+  }
+
+  updateBossTrail(boss){
+    // keep a short body behind the head
+    const maxSeg = 12 + (boss.phase * 2);
+    if (!boss.trail) boss.trail = [];
+
+    // sample tile centers so it looks "snakey" not jittery
+    const last = boss.trail[0];
+    const dx = last ? Math.abs(last.px - boss.px) : 999;
+    const dy = last ? Math.abs(last.py - boss.py) : 999;
+
+    if (!last || (dx + dy) > 0.45){
+      boss.trail.unshift({ px: boss.px, py: boss.py });
+      if (boss.trail.length > maxSeg) boss.trail.pop();
     }
   }
 
@@ -209,7 +405,8 @@ export class Game {
       this.exit,
       this.floor,
       this.keysHave,
-      this.keysNeed
+      this.keysNeed,
+      this.toast
     );
   }
 
@@ -273,7 +470,6 @@ export class Game {
     const enemies = [];
     let tries = 0;
 
-    // Each template has a weaponType (sword/gun/shield)
     const templates = [
       { name: "Void Duelist",   weaponType: "sword",  ac: 12, atk: 2, dmgSides: 8, dmgMod: 0, maxHp: 11, xpValue: 7, speed: 7.0 },
       { name: "Gunner Drone",   weaponType: "gun",    ac: 11, atk: 3, dmgSides: 6, dmgMod: 1, maxHp: 9,  xpValue: 6, speed: 7.4 },
@@ -317,6 +513,7 @@ export class Game {
         dmgMod: t.dmgMod,
         xpValue: t.xpValue,
         brain: Math.random() < 0.35 ? "chaser" : "wander",
+        trail: []
       });
     }
 
