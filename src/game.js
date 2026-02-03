@@ -31,6 +31,13 @@ export class Game {
     // toast
     this.toast = { text: "", t: 0 };
 
+    // --- FOG OF WAR (soft) ---
+    this.fog = {
+      radius: 5,         // how far you can see (grid steps)
+      seen: [],          // persistent memory of tiles seen this floor
+      visible: []        // updated each frame
+    };
+
     // --- DEBUG: allow URL to force a starting floor ---
     // Use: ?floor=3 or ?level=3
     try {
@@ -91,7 +98,6 @@ export class Game {
 
   // ---------- DEBUG UI ----------
   initDebugPanel() {
-    // Toggle button
     const btn = document.createElement("button");
     btn.textContent = "DEV";
     btn.style.position = "fixed";
@@ -106,7 +112,6 @@ export class Game {
     btn.style.fontFamily = "system-ui";
     btn.style.fontSize = "12px";
 
-    // Panel
     const panel = document.createElement("div");
     panel.style.position = "fixed";
     panel.style.right = "10px";
@@ -191,7 +196,7 @@ export class Game {
     const hint = document.createElement("div");
     hint.style.opacity = "0.75";
     hint.style.lineHeight = "1.25";
-    hint.textContent = "Tip: You can also start at a floor via ?floor=3";
+    hint.textContent = "Tip: start at a floor via ?floor=3";
 
     panel.appendChild(title);
     panel.appendChild(row1);
@@ -199,7 +204,6 @@ export class Game {
     panel.appendChild(row3);
     panel.appendChild(hint);
 
-    // wiring
     btn.addEventListener("click", () => {
       panel.style.display = (panel.style.display === "none") ? "block" : "none";
       input.value = String(this.floor);
@@ -232,7 +236,6 @@ export class Game {
     });
 
     bReset.addEventListener("click", () => {
-      // full reset of player/gear/stats but keep chosen floor
       this.resetRun(true);
       this.toastMessage(`Reset run on Floor ${this.floor}`, 1.6);
     });
@@ -240,7 +243,6 @@ export class Game {
     document.body.appendChild(btn);
     document.body.appendChild(panel);
 
-    // Small keyboard helper on desktop: `L` toggles panel
     window.addEventListener("keydown", (e) => {
       if (e.key.toLowerCase() === "l") btn.click();
     });
@@ -248,12 +250,79 @@ export class Game {
 
   setFloor(floor, fullReset = false) {
     this.floor = Math.max(1, floor | 0);
-    // If a battle UI is open, close it to prevent weird state
     try { this.battleUI.close(); } catch (_) {}
     this.mode = "explore";
     this.currentEnemyId = null;
     this.resetRun(fullReset);
     this.toastMessage(`Loaded Floor ${this.floor}${this.isBossFloor(this.floor) ? " (Boss)" : ""}`, 1.4);
+  }
+
+  // ---------- FOG OF WAR ----------
+  initFogArrays() {
+    const rows = this.grid.length;
+    const cols = this.grid[0].length;
+
+    this.fog.seen = Array.from({ length: rows }, () => Array(cols).fill(false));
+    this.fog.visible = Array.from({ length: rows }, () => Array(cols).fill(false));
+  }
+
+  computeVisibility() {
+    const rows = this.grid.length;
+    const cols = this.grid[0].length;
+
+    // clear visible
+    for (let y = 0; y < rows; y++) {
+      this.fog.visible[y].fill(false);
+    }
+
+    const r = this.fog.radius | 0;
+    const sx = this.player.x | 0;
+    const sy = this.player.y | 0;
+
+    const inBounds = (x, y) => x >= 0 && y >= 0 && x < cols && y < rows;
+    const isWall = (x, y) => this.grid[y][x] === 0;
+    const isFloor = (x, y) => this.grid[y][x] === 1;
+
+    // BFS “corridor visibility”: expands through floors, reveals walls but does not see through them.
+    const q = [];
+    const visited = Array.from({ length: rows }, () => Array(cols).fill(false));
+
+    q.push({ x: sx, y: sy, d: 0 });
+    visited[sy][sx] = true;
+
+    while (q.length) {
+      const cur = q.shift();
+      const { x, y, d } = cur;
+
+      this.fog.visible[y][x] = true;
+      this.fog.seen[y][x] = true;
+
+      if (d >= r) continue;
+
+      const nbs = [
+        { x: x + 1, y },
+        { x: x - 1, y },
+        { x, y: y + 1 },
+        { x, y: y - 1 }
+      ];
+
+      for (const nb of nbs) {
+        if (!inBounds(nb.x, nb.y)) continue;
+
+        // Walls get revealed (softly) but stop propagation
+        if (isWall(nb.x, nb.y)) {
+          this.fog.visible[nb.y][nb.x] = true;
+          this.fog.seen[nb.y][nb.x] = true;
+          continue;
+        }
+
+        // Floors propagate
+        if (isFloor(nb.x, nb.y) && !visited[nb.y][nb.x]) {
+          visited[nb.y][nb.x] = true;
+          q.push({ x: nb.x, y: nb.y, d: d + 1 });
+        }
+      }
+    }
   }
 
   // ---------- Run / Floors ----------
@@ -308,6 +377,9 @@ export class Game {
       this.healPlayer(heal);
     }
 
+    // init fog per floor
+    this.initFogArrays();
+
     if (this.isBossFloor(this.floor)) {
       this.spawnBossFloor(start);
     } else {
@@ -316,6 +388,9 @@ export class Game {
 
     this.mode = "explore";
     this.toastMessage(this.isBossFloor(this.floor) ? `BOSS FLOOR: Hunt the serpent.` : `Hunt keycards to unlock the exit.`);
+
+    // compute first visibility immediately
+    this.computeVisibility();
   }
 
   spawnNormalFloor(start) {
@@ -501,6 +576,9 @@ export class Game {
       if (e.isBoss) this.updateBossTrail(e);
     }
 
+    // recompute fog each frame (cheap at this grid size)
+    this.computeVisibility();
+
     const pkey = `${this.player.x},${this.player.y}`;
 
     if (this.pellets.has(pkey)) {
@@ -559,7 +637,8 @@ export class Game {
       this.floor,
       this.keysHave,
       this.keysNeed,
-      this.toast
+      this.toast,
+      this.fog
     );
   }
 
@@ -689,8 +768,7 @@ export class Game {
       for (const d of options) {
         const nx = e.x + d.x;
         const ny = e.y + d.y;
-        const score =
-          Math.abs(nx - this.player.x) + Math.abs(ny - this.player.y);
+        const score = Math.abs(nx - this.player.x) + Math.abs(ny - this.player.y);
         if (score < bestScore) {
           bestScore = score;
           best = d;
@@ -704,9 +782,7 @@ export class Game {
     }
 
     const reverse = { x: -e.dir.x, y: -e.dir.y };
-    const nonReverse = options.filter(
-      (d) => !(d.x === reverse.x && d.y === reverse.y)
-    );
+    const nonReverse = options.filter((d) => !(d.x === reverse.x && d.y === reverse.y));
     const pool = nonReverse.length ? nonReverse : options;
     return pool[Math.floor(Math.random() * pool.length)];
   }
