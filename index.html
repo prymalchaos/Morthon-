@@ -9,30 +9,45 @@
 <body>
   <div id="app">
     <canvas id="game"></canvas>
-    
-        <!-- Encounter overlay -->
+
+    <!-- Encounter overlay -->
     <div id="encounter" class="hidden">
       <div class="panel">
         <div class="title">ENCOUNTER</div>
         <div id="encounter-sub" class="sub">A hostile signal in the corridor…</div>
 
-        <div class="row">
-          <div class="label">Enemy</div>
-          <div id="enemy-name" class="value">Drone</div>
+        <div class="grid">
+          <div class="row">
+            <div class="label">Enemy</div>
+            <div id="enemy-name" class="value">Void Drone</div>
+          </div>
+
+          <div class="row">
+            <div class="label">Enemy HP</div>
+            <div id="enemy-hp" class="value">10 / 10</div>
+          </div>
+
+          <div class="row">
+            <div class="label">Your HP</div>
+            <div id="player-hp" class="value">20 / 20</div>
+          </div>
+
+          <div class="row">
+            <div class="label">Last Roll</div>
+            <div id="roll-out" class="value">-</div>
+          </div>
         </div>
 
-        <div class="row">
-          <div class="label">Enemy HP</div>
-          <div id="enemy-hp" class="value">10 / 10</div>
-        </div>
+        <div id="battle-log" class="log" aria-live="polite"></div>
 
-        <div class="row">
-          <div class="label">Roll</div>
-          <div id="roll-out" class="value">-</div>
+        <div class="btnrow">
+          <button id="btn-attack">Sword</button>
+          <button id="btn-tech">Blaster</button>
+          <button id="btn-defend">Defend</button>
+          <button id="btn-panic">Panic</button>
         </div>
 
         <div class="btnrow">
-          <button id="btn-roll">Roll d20</button>
           <button id="btn-exit">Exit</button>
         </div>
       </div>
@@ -49,7 +64,6 @@
         </div>
       </div>
 
-      <!-- Reserved buttons for later systems -->
       <div class="actions">
         <button id="btn-action" disabled>Action</button>
         <button id="btn-menu" disabled>Menu</button>
