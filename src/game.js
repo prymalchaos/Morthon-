@@ -18,23 +18,46 @@ export class Game {
     this.cols = 21;
     this.rows = 27;
 
-    // Persistent run state
     this.floor = 1;
 
-    // Wire battle callbacks
+    // Medkits on the map: Set of "x,y"
+    this.medkits = new Set();
+
+    // Key system
+    this.keysHave = 0;
+    this.keysNeed = 0;
+
+    // Track enemy tile for post-battle drops
+    this.lastEncounterTile = null;
+
     this.battleUI.onWin = (enemySnapshot) => {
+      // XP
       const xpGain = enemySnapshot.xpValue ?? 5;
       this.player.stats.xp += xpGain;
 
+      // KEYCARD (every enemy drops one)
+      this.keysHave = Math.min(this.keysNeed, this.keysHave + 1);
+
+      // Small heal-on-kill (feels good, not too strong)
+      this.healPlayer(2);
+
+      // Chance to drop medkit on the enemy's tile (and sometimes always early floors)
+      const dropChance = this.floor <= 2 ? 0.55 : 0.35;
+      const willDrop = Math.random() < dropChance;
+
+      if (willDrop && enemySnapshot?.x != null && enemySnapshot?.y != null){
+        this.medkits.add(`${enemySnapshot.x},${enemySnapshot.y}`);
+      }
+
+      // Remove defeated enemy from the map
       if (this.currentEnemyId != null) {
         this.enemies = this.enemies.filter((e) => e.id !== this.currentEnemyId);
         this.currentEnemyId = null;
       }
-      // Exit button becomes available in battle UI when it ends
+      // Exit button becomes available in UI after battle ends
     };
 
     this.battleUI.onLose = () => {
-      // Hard reset
       this.floor = 1;
       this.resetRun(true);
       this.battleUI.close();
@@ -49,13 +72,14 @@ export class Game {
     this.resetRun(true);
   }
 
-  // If fullReset=true, we reset stats too. Otherwise we keep stats/loadout across floors.
   resetRun(fullReset = false) {
     const { grid, pellets, start, exit } = generateMaze(this.cols, this.rows);
 
     this.grid = grid;
     this.pellets = pellets;
     this.exit = exit;
+
+    this.medkits = new Set();
 
     if (fullReset || !this.player) {
       this.player = {
@@ -80,8 +104,9 @@ export class Game {
           ranged: { name: "Blaster", dmgDice: { count: 1, sides: 6 } },
         },
       };
+      this.keysHave = 0;
     } else {
-      // carry stats, just reposition
+      // carry stats across floors, reposition
       this.player.x = start.x;
       this.player.y = start.y;
       this.player.px = start.x;
@@ -89,26 +114,52 @@ export class Game {
       this.player.dir = { x: 0, y: 0 };
       this.player.nextDir = { x: 0, y: 0 };
 
-      // tiny heal between floors (feels good)
-      const heal = Math.max(1, Math.floor(this.player.stats.maxHp * 0.2));
-      this.player.stats.hp = Math.min(this.player.stats.maxHp, this.player.stats.hp + heal);
+      // Gentle between-floor heal
+      const heal = Math.max(1, Math.floor(this.player.stats.maxHp * 0.15));
+      this.healPlayer(heal);
     }
 
+    // Spawn enemies and set key requirement
     this.enemyIdCounter = 1;
     this.enemies = this.spawnEnemies(this.enemyCountForFloor(this.floor));
+    this.keysNeed = this.enemies.length;
+    this.keysHave = 0; // per-floor keys (forces hunting)
     this.currentEnemyId = null;
+
+    // Optional: seed 1 medkit somewhere (helps pacing)
+    this.seedOneMedkitFarFromStart(start);
 
     this.mode = "explore";
   }
 
+  seedOneMedkitFarFromStart(start){
+    let tries = 0;
+    while (tries < 2000){
+      tries++;
+      const x = 1 + Math.floor(Math.random() * (this.cols - 2));
+      const y = 1 + Math.floor(Math.random() * (this.rows - 2));
+      if (!this.isFloor(x,y)) continue;
+      if (this.exit && x === this.exit.x && y === this.exit.y) continue;
+
+      const dist = Math.abs(x - start.x) + Math.abs(y - start.y);
+      if (dist < 10) continue;
+
+      this.medkits.add(`${x},${y}`);
+      return;
+    }
+  }
+
   enemyCountForFloor(floor){
-    // scales gently
     return Math.min(10, 4 + Math.floor((floor - 1) * 0.8));
   }
 
   nextFloor(){
     this.floor += 1;
     this.resetRun(false);
+  }
+
+  healPlayer(amount){
+    this.player.stats.hp = Math.min(this.player.stats.maxHp, this.player.stats.hp + amount);
   }
 
   resize() {
@@ -131,15 +182,31 @@ export class Game {
       this.stepEnemy(e, dt);
     }
 
-    const key = `${this.player.x},${this.player.y}`;
-    if (this.pellets.has(key)) this.pellets.delete(key);
+    // Pellet pickup (tiny sustain: every 6 pellets = +1 HP)
+    const pkey = `${this.player.x},${this.player.y}`;
+    if (this.pellets.has(pkey)){
+      this.pellets.delete(pkey);
+      this.player.stats._pellets = (this.player.stats._pellets || 0) + 1;
+      if (this.player.stats._pellets % 6 === 0){
+        this.healPlayer(1);
+      }
+    }
 
-    // Step onto portal to go next floor
+    // Medkit pickup
+    if (this.medkits.has(pkey)){
+      this.medkits.delete(pkey);
+      this.healPlayer(7);
+    }
+
+    // Exit portal logic: only works if you have all keys
     if (this.exit && this.player.x === this.exit.x && this.player.y === this.exit.y) {
-      this.nextFloor();
+      if (this.keysHave >= this.keysNeed){
+        this.nextFloor();
+      }
       return;
     }
 
+    // Collision → battle
     const hit = this.checkEnemyCollision();
     if (hit) {
       this.mode = "battle";
@@ -149,7 +216,17 @@ export class Game {
   }
 
   render() {
-    this.renderer.draw(this.grid, this.pellets, this.player, this.enemies, this.exit, this.floor);
+    this.renderer.draw(
+      this.grid,
+      this.pellets,
+      this.medkits,
+      this.player,
+      this.enemies,
+      this.exit,
+      this.floor,
+      this.keysHave,
+      this.keysNeed
+    );
   }
 
   // ---------- Grid helpers ----------
@@ -218,7 +295,6 @@ export class Game {
       { name: "Rust Reaper",  ac: 13, atk: 2, dmgSides: 8, dmgMod: 0, maxHp: 12, xpValue: 8, speed: 6.6 },
     ];
 
-    // difficulty nudge per floor
     const hpBonus = Math.floor((this.floor - 1) * 0.6);
     const acBonus = Math.floor((this.floor - 1) * 0.25);
 
