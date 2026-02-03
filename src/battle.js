@@ -14,40 +14,81 @@ export class BattleUI{
     this.btnPanic = document.getElementById("btn-panic");
     this.btnExit = document.getElementById("btn-exit");
 
-    // Button labels
     this.btnAttack.textContent = "Sword";
     this.btnTech.textContent = "Gun";
     this.btnDefend.textContent = "Shield";
 
     this.isOpen = false;
-    this.turn = "player"; // player | enemy | end
+    this.turn = "player";
     this.enemy = null;
-
-    this.player = null; // { stats, gear }
+    this.player = null;
 
     this.temp = {
       guarding: false,
       guardDR: 0
     };
 
-    // ---- NEW: stance reveal only for the first exchange ----
-    this.stanceKnown = true;       // true only at combat start
-    this.firstActionTaken = false; // after first player action, stanceKnown becomes false
+    // stance reveal only at combat start
+    this.stanceKnown = true;
+    this.firstActionTaken = false;
 
-    this.onWin = null;   // (enemySnapshot) => void
-    this.onLose = null;  // () => void
-    this.onExit = null;  // () => void
+    // commit mechanic (hold button)
+    this.commit = {
+      holding: null,
+      timer: null,
+      armed: false,
+      thresholdMs: 320
+    };
 
-    this.btnAttack.addEventListener("click", () => this.playerAction("sword"));
-    this.btnTech.addEventListener("click", () => this.playerAction("gun"));
-    this.btnDefend.addEventListener("click", () => this.playerAction("shield"));
-    this.btnPanic.addEventListener("click", () => this.playerAction("panic"));
+    this.onWin = null;
+    this.onLose = null;
+    this.onExit = null;
+
+    // click actions still work (normal attack)
+    this.btnAttack.addEventListener("click", () => this.playerAction("sword", { commit: false }));
+    this.btnTech.addEventListener("click", () => this.playerAction("gun", { commit: false }));
+    this.btnDefend.addEventListener("click", () => this.playerAction("shield", { commit: false }));
+    this.btnPanic.addEventListener("click", () => this.playerAction("panic", { commit: false }));
+
+    // hold-to-commit on sword/gun/shield (panic stays click-only)
+    this.bindCommitHold(this.btnAttack, "sword");
+    this.bindCommitHold(this.btnTech, "gun");
+    this.bindCommitHold(this.btnDefend, "shield");
 
     this.btnExit.addEventListener("click", () => {
       if (this.turn !== "end") return;
       this.close();
       if (this.onExit) this.onExit();
     });
+  }
+
+  bindCommitHold(button, kind){
+    const down = () => {
+      if (!this.isOpen || this.turn !== "player") return;
+      this.commit.holding = kind;
+      this.commit.armed = false;
+
+      this.commit.timer = setTimeout(() => {
+        this.commit.armed = true;
+        // fire commit action immediately when threshold reached
+        this.playerAction(kind, { commit: true });
+      }, this.commit.thresholdMs);
+    };
+
+    const up = () => {
+      if (this.commit.timer) clearTimeout(this.commit.timer);
+      this.commit.timer = null;
+
+      // If the commit already fired, do nothing.
+      // If it didn’t fire, the normal click handler will run.
+      this.commit.holding = null;
+      this.commit.armed = false;
+    };
+
+    button.addEventListener("pointerdown", down);
+    button.addEventListener("pointerup", up);
+    button.addEventListener("pointercancel", up);
+    button.addEventListener("pointerleave", up);
   }
 
   open(enemy, player){
@@ -75,6 +116,7 @@ export class BattleUI{
     }
 
     this.log(`Combat engaged. ${this.enemy.name} ${stanceLine}`);
+    this.log(`Tip: hold Sword/Gun/Shield to COMMIT (higher hit chance, risky).`);
     this.setButtonsEnabled(true);
   }
 
@@ -205,8 +247,15 @@ export class BattleUI{
   }
 
   // ---------- Combat ----------
-  playerAction(kind){
+  playerAction(kind, { commit = false } = {}){
     if (!this.isOpen || this.turn !== "player") return;
+
+    // If this was triggered by the hold-to-commit timer, prevent the click that follows
+    // by disabling buttons immediately.
+    if (commit) {
+      // already in click path? ignore
+      if (this.btnAttack.disabled || this.btnTech.disabled || this.btnDefend.disabled) return;
+    }
 
     // First player action flips stance visibility OFF for the rest of the fight
     if (!this.firstActionTaken){
@@ -223,24 +272,32 @@ export class BattleUI{
 
     const ps = this.player.stats;
 
-    // After the first exchange, the enemy stance becomes unpredictable
-    // We randomize enemy stance right before resolving THIS action.
+    // randomize stance after first reveal
     if (!this.stanceKnown){
       this.enemy.weaponType = this.randomWeapon();
     }
 
     if (kind === "shield"){
+      // Commit with shield: stronger guard, but if you guessed wrong you get “shattered” (lose DR next hit)
       this.temp.guarding = true;
       this.temp.guardDR = 2 + Math.floor((ps.str || 0) / 2);
+      if (commit) this.temp.guardDR += 1;
 
       this.syncUI("-");
-      this.log(`You raise your Shield. Guard active (DR ${this.temp.guardDR}).`);
+      this.log(`${commit ? "COMMIT: " : ""}You raise your Shield. Guard active (DR ${this.temp.guardDR}).`);
       this.endPlayerTurn();
       return;
     }
 
     if (kind === "panic"){
-      const cost = 3;
+      // Panic Battery: if you have charges, Panic costs 0 HP and consumes a charge
+      let cost = 3;
+      if ((ps.panicCharges || 0) > 0){
+        cost = 0;
+        ps.panicCharges -= 1;
+        this.log(`Panic Battery discharged. (Free Panic)`);
+      }
+
       if (ps.hp <= cost){
         this.syncUI("-");
         this.log("Panic failed. Not enough HP to trigger the overload.");
@@ -253,7 +310,7 @@ export class BattleUI{
       this.enemy.hp = Math.max(0, this.enemy.hp - dmg.total);
 
       this.syncUI(`Panic: ${dmg.rolls.join("+")} = ${dmg.total}`);
-      this.log(`PANIC OVERLOAD! You take ${cost} HP. Enemy takes ${dmg.total}.`);
+      this.log(`PANIC OVERLOAD! You ${cost ? `take ${cost} HP` : "take no HP"}. Enemy takes ${dmg.total}.`);
 
       if (this.enemy.hp <= 0){ this.win(); return; }
       this.endPlayerTurn();
@@ -263,22 +320,35 @@ export class BattleUI{
     // Sword / Gun attack
     const enemyW = this.enemy.weaponType || "sword";
     const playerW = kind;
+
     const mode = this.matchup(playerW, enemyW);
+
+    // Commit mechanic:
+    // - +2 to hit (less whiff)
+    // - but if you are at DISADVANTAGE, you take 1 backlash damage (the "bad read" punishment)
+    // - if you are at ADVANTAGE, you get +1 flat damage (momentum)
+    const commitHitBonus = commit ? 2 : 0;
+    const commitFlatDmg = commit && mode === "adv" ? 1 : 0;
+    const backlash = commit && mode === "dis" ? 1 : 0;
 
     const atkMod = (kind === "sword") ? (ps.atk || 0) : Math.max(0, (ps.atk || 0) - 1);
     const statMod = (kind === "sword") ? (ps.str || 0) : (ps.int || 0);
 
     const d20 = this.rollD20(mode);
-    const totalToHit = d20.roll + atkMod;
+    const totalToHit = d20.roll + atkMod + commitHitBonus;
 
     const isCrit = (d20.roll === 20);
     const hit = isCrit || totalToHit >= this.enemy.ac;
 
-    // NOTE: we no longer tell the player what the enemy stance is after the first exchange.
-    // We still log advantage/disadvantage outcome because that’s what you *feel* in the fight.
     const tag = (mode === "adv") ? "Advantage" : (mode === "dis") ? "Disadvantage" : "Neutral";
-    this.syncUI(`${d20.text} +${atkMod} = ${totalToHit}`);
-    this.log(`${this.prettyWeapon(playerW)} clash: ${tag}.`);
+    this.syncUI(`${d20.text} +${atkMod}${commitHitBonus ? ` +${commitHitBonus}` : ""} = ${totalToHit}`);
+    this.log(`${commit ? "COMMIT " : ""}${this.prettyWeapon(playerW)} clash: ${tag}.`);
+
+    if (backlash > 0){
+      ps.hp = Math.max(0, ps.hp - backlash);
+      this.log(`Backlash! You take ${backlash} damage for committing into a bad read.`);
+      if (ps.hp <= 0){ this.lose(); return; }
+    }
 
     if (!hit){
       this.log(`Miss. (${totalToHit} vs AC ${this.enemy.ac})`);
@@ -287,12 +357,24 @@ export class BattleUI{
     }
 
     const wp = this.weaponProfile(kind);
-    let count = this.adjustDiceCount(wp.count, mode);
+
+    // Epic passive: Overclock (10% chance to add +1 die)
+    let overclockBonusDie = 0;
+    if (ps.passives?.overclock){
+      if (this.rollDie(10) === 10) overclockBonusDie = 1;
+    }
+
+    let count = this.adjustDiceCount(wp.count, mode) + overclockBonusDie;
     if (isCrit) count *= 2;
 
     const base = this.rollDice(count, wp.sides);
-    const dmg = Math.max(1, base.total + statMod + (wp.flat || 0));
+    const dmg = Math.max(1, base.total + statMod + (wp.flat || 0) + commitFlatDmg);
+
     this.enemy.hp = Math.max(0, this.enemy.hp - dmg);
+
+    if (overclockBonusDie){
+      this.log(`Overclock! +1 die.`);
+    }
 
     this.log(`${isCrit ? "CRIT! " : ""}Hit for ${dmg}. Enemy HP ${this.enemy.hp}/${this.enemy.maxHp}.`);
 
@@ -310,7 +392,7 @@ export class BattleUI{
 
     const ps = this.player.stats;
 
-    // After the first exchange, enemy stance randomizes each time it acts, too.
+    // randomize stance each enemy act after first reveal
     if (!this.stanceKnown){
       this.enemy.weaponType = this.randomWeapon();
     }
@@ -365,6 +447,13 @@ export class BattleUI{
       this.log(`Guard absorbs ${this.temp.guardDR}.`);
     }
 
+    // Epic passive: Reactive Plating (once per battle reduce dmg by 1)
+    if (ps.passives?.reactivePlating && !ps._reactiveUsed && dmg > 0){
+      dmg = Math.max(0, dmg - 1);
+      ps._reactiveUsed = true;
+      this.log(`Reactive Plating triggers. (-1 dmg)`);
+    }
+
     ps.hp = Math.max(0, ps.hp - dmg);
     this.log(`${isCrit ? "CRIT! " : ""}Hit for ${dmg}. Your HP ${ps.hp}/${ps.maxHp}.`);
 
@@ -413,7 +502,6 @@ export class BattleUI{
     } else {
       this.log(`Enemy neutralized. Keycard recovered.`);
     }
-    this.log(`Scan: potential salvage in the area.`);
 
     if (this.onWin) this.onWin(this.enemy);
   }
