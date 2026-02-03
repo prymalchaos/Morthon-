@@ -22,7 +22,7 @@ export class BattleUI{
     // callbacks set by Game
     this.onWin = null;   // (enemy) => void
     this.onLose = null;  // () => void
-    this.onExit = null;  // () => void (only when battle ended, or for dev)
+    this.onExit = null;  // () => void
 
     this.btnAttack.addEventListener("click", () => this.playerAction("sword"));
     this.btnTech.addEventListener("click", () => this.playerAction("blaster"));
@@ -30,7 +30,6 @@ export class BattleUI{
     this.btnPanic.addEventListener("click", () => this.playerAction("panic"));
 
     this.btnExit.addEventListener("click", () => {
-      // Exit only allowed when battle is over
       if (this.turn !== "end") return;
       this.close();
       if (this.onExit) this.onExit();
@@ -39,7 +38,6 @@ export class BattleUI{
 
   open(enemy, playerStats){
     this.isOpen = true;
-    // Clone enemy so battle modifies its own instance; Game will decide outcome
     this.enemy = JSON.parse(JSON.stringify(enemy));
     this.playerStats = playerStats;
     this.turn = "player";
@@ -83,7 +81,6 @@ export class BattleUI{
     this.btnTech.disabled = !enabled;
     this.btnDefend.disabled = !enabled;
     this.btnPanic.disabled = !enabled;
-    // Exit only when battle ends
     this.btnExit.disabled = (this.turn !== "end");
   }
 
@@ -137,7 +134,6 @@ export class BattleUI{
       }
       this.playerStats.hp -= cost;
 
-      // Panic blast: 2d6 true damage (ignores AC, feels like an emergency nuke)
       const dmg = this.rollDice(2, 6);
       this.enemy.hp = Math.max(0, this.enemy.hp - dmg.total);
 
@@ -154,7 +150,6 @@ export class BattleUI{
     }
 
     if (kind === "sword"){
-      // Space Sword: hit = d20 + atk, damage = 1d8 + str
       const atkMod = this.playerStats.atk;
       const strMod = this.playerStats.str;
       const d20 = this.rollDie(20);
@@ -171,7 +166,7 @@ export class BattleUI{
         return;
       }
 
-      const base = this.rollDice(isCrit ? 2 : 1, 8); // crit doubles dice
+      const base = this.rollDice(isCrit ? 2 : 1, 8);
       const dmg = Math.max(1, base.total + strMod);
       this.enemy.hp = Math.max(0, this.enemy.hp - dmg);
 
@@ -187,8 +182,6 @@ export class BattleUI{
     }
 
     if (kind === "blaster"){
-      // Blaster: slightly easier, smaller damage
-      // hit = d20 + (atk-1), damage = 1d6 + int
       const atkMod = Math.max(0, this.playerStats.atk - 1);
       const intMod = this.playerStats.int;
       const d20 = this.rollDie(20);
@@ -223,7 +216,6 @@ export class BattleUI{
 
   endPlayerTurn(){
     this.turn = "enemy";
-    // tiny delay so it feels turn-based
     setTimeout(() => this.enemyTurn(), 300);
   }
 
@@ -274,7 +266,11 @@ export class BattleUI{
     this.setButtonsEnabled(false);
     this.btnExit.disabled = false;
     this.syncUI("-");
-    this.log(`Enemy neutralized. Corridor secure.`);
+
+    // Rewards are handled by Game, but we communicate intent here
+    this.log(`Enemy neutralized. Keycard recovered.`);
+    this.log(`Scan: potential salvage in the area.`);
+
     if (this.onWin) this.onWin(this.enemy);
   }
 
