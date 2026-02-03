@@ -8,7 +8,7 @@ export class Renderer{
     this.vw = w; this.vh = h; this.dpr = dpr;
   }
 
-  draw(grid, pellets, player, enemies){
+  draw(grid, pellets, player, enemies, exit, floor){
     const ctx = this.ctx;
     ctx.clearRect(0,0,this.vw,this.vh);
 
@@ -20,6 +20,7 @@ export class Renderer{
     const ox = Math.floor((this.vw - cell*cols) / 2);
     const oy = Math.floor((this.vh - cell*rows) / 2);
 
+    // Background
     ctx.fillStyle = "#050812";
     ctx.fillRect(0,0,this.vw,this.vh);
 
@@ -31,6 +32,27 @@ export class Renderer{
           ctx.fillRect(ox + x*cell, oy + y*cell, cell, cell);
         }
       }
+    }
+
+    // Exit portal
+    if (exit){
+      const ex = ox + exit.x*cell + cell/2;
+      const ey = oy + exit.y*cell + cell/2;
+      ctx.fillStyle = "rgba(180,120,255,0.25)";
+      ctx.beginPath();
+      ctx.arc(ex, ey, Math.floor(cell*0.42), 0, Math.PI*2);
+      ctx.fill();
+
+      ctx.strokeStyle = "rgba(220,190,255,0.85)";
+      ctx.lineWidth = Math.max(1, Math.floor(2*this.dpr));
+      ctx.beginPath();
+      ctx.arc(ex, ey, Math.floor(cell*0.30), 0, Math.PI*2);
+      ctx.stroke();
+
+      ctx.fillStyle = "rgba(220,190,255,0.95)";
+      ctx.beginPath();
+      ctx.arc(ex, ey, Math.floor(cell*0.10), 0, Math.PI*2);
+      ctx.fill();
     }
 
     // Pellets
@@ -74,7 +96,13 @@ export class Renderer{
     // HUD
     ctx.fillStyle = "rgba(231,240,255,0.88)";
     ctx.font = `${14*this.dpr}px system-ui`;
-    ctx.fillText(`Loot: ${pellets.size}`, 12*this.dpr, 18*this.dpr);
-    ctx.fillText(`HP: ${player.stats.hp}/${player.stats.maxHp}  XP: ${player.stats.xp}`, 12*this.dpr, 38*this.dpr);
+    ctx.fillText(`Floor: ${floor}`, 12*this.dpr, 18*this.dpr);
+    ctx.fillText(`Loot: ${pellets.size}`, 12*this.dpr, 38*this.dpr);
+    ctx.fillText(`HP: ${player.stats.hp}/${player.stats.maxHp}  XP: ${player.stats.xp}`, 12*this.dpr, 58*this.dpr);
+
+    // Hint
+    ctx.fillStyle = "rgba(220,190,255,0.75)";
+    ctx.font = `${12*this.dpr}px system-ui`;
+    ctx.fillText(`Find the portal`, 12*this.dpr, 78*this.dpr);
   }
 }
