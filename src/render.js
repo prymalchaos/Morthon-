@@ -8,7 +8,7 @@ export class Renderer{
     this.vw = w; this.vh = h; this.dpr = dpr;
   }
 
-  draw(grid, pellets, player){
+  draw(grid, pellets, player, enemies){
     const ctx = this.ctx;
     ctx.clearRect(0,0,this.vw,this.vh);
 
@@ -54,6 +54,25 @@ export class Renderer{
     ctx.beginPath();
     ctx.arc(px, py, Math.floor(cell*0.32), 0, Math.PI*2);
     ctx.fill();
+    
+        // Enemies
+    for (const e of enemies){
+      const ex = ox + e.px*cell + cell/2;
+      const ey = oy + e.py*cell + cell/2;
+
+      ctx.fillStyle = "rgba(255,120,170,0.92)";
+      ctx.beginPath();
+      ctx.arc(ex, ey, Math.floor(cell*0.30), 0, Math.PI*2);
+      ctx.fill();
+
+      // little “visor” line for vibe
+      ctx.strokeStyle = "rgba(5,8,18,0.75)";
+      ctx.lineWidth = Math.max(1, Math.floor(2*this.dpr));
+      ctx.beginPath();
+      ctx.moveTo(ex - cell*0.14, ey);
+      ctx.lineTo(ex + cell*0.14, ey);
+      ctx.stroke();
+    }
 
     // Tiny HUD
     ctx.fillStyle = "rgba(231,240,255,0.85)";
