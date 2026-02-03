@@ -8,8 +8,9 @@ export class Renderer{
     this.vw = w; this.vh = h; this.dpr = dpr;
   }
 
-  // fog: { seen[y][x], visible[y][x] }
-  draw(grid, pellets, medkits, player, enemies, exit, floor, keysHave, keysNeed, toast, fog){
+  // store: {x,y}
+  // loot: [{x,y,type,rarity}]
+  draw(grid, pellets, medkits, loot, store, player, enemies, exit, floor, keysHave, keysNeed, toast, fog, scan){
     const ctx = this.ctx;
     ctx.clearRect(0,0,this.vw,this.vh);
 
@@ -37,7 +38,32 @@ export class Renderer{
       }
     }
 
-    // Exit portal (only if visible OR previously seen)
+    // Store terminal (visible or seen)
+    if (store && store.x >= 0 && (isVisible(store.x, store.y) || isSeen(store.x, store.y))) {
+      const cx = ox + store.x*cell + cell/2;
+      const cy = oy + store.y*cell + cell/2;
+
+      ctx.fillStyle = "rgba(255,210,120,0.12)";
+      ctx.beginPath();
+      ctx.arc(cx, cy, Math.floor(cell*0.44), 0, Math.PI*2);
+      ctx.fill();
+
+      ctx.strokeStyle = "rgba(255,210,120,0.70)";
+      ctx.lineWidth = Math.max(1, Math.floor(2*this.dpr));
+      ctx.beginPath();
+      ctx.arc(cx, cy, Math.floor(cell*0.30), 0, Math.PI*2);
+      ctx.stroke();
+
+      ctx.fillStyle = "rgba(231,240,255,0.92)";
+      ctx.font = `${Math.floor(cell*0.52)}px system-ui`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("⌬", cx, cy);
+      ctx.textAlign = "left";
+      ctx.textBaseline = "alphabetic";
+    }
+
+    // Exit portal (visible OR seen)
     if (exit && (isVisible(exit.x, exit.y) || isSeen(exit.x, exit.y))){
       const ex = ox + exit.x*cell + cell/2;
       const ey = oy + exit.y*cell + cell/2;
@@ -64,7 +90,7 @@ export class Renderer{
       ctx.textBaseline = "alphabetic";
     }
 
-    // Pellets (only when currently visible)
+    // Pellets (visible only)
     ctx.fillStyle = "rgba(231,240,255,0.9)";
     const r = Math.max(2*this.dpr, Math.floor(cell*0.14));
     for (const key of pellets){
@@ -77,7 +103,7 @@ export class Renderer{
       ctx.fill();
     }
 
-    // Medkits (only when currently visible)
+    // Medkits (visible only)
     for (const key of medkits){
       const [x,y] = key.split(",").map(Number);
       if (!isVisible(x,y)) continue;
@@ -100,16 +126,53 @@ export class Renderer{
       ctx.stroke();
     }
 
-    // Enemies (only when visible)
+    // Loot (visible only)
+    for (const item of loot || []){
+      if (!isVisible(item.x, item.y)) continue;
+
+      const cx = ox + item.x*cell + cell/2;
+      const cy = oy + item.y*cell + cell/2;
+
+      // Soft rarity vibe via alpha/ring
+      const ringA = (item.rarity === "epic") ? 0.95 : (item.rarity === "rare" ? 0.80 : 0.62);
+      const fillA = (item.rarity === "epic") ? 0.18 : (item.rarity === "rare" ? 0.14 : 0.10);
+
+      ctx.fillStyle = item.type === "weapon" ? `rgba(255,210,120,${fillA})` : `rgba(180,200,255,${fillA})`;
+      ctx.beginPath();
+      ctx.arc(cx, cy, Math.floor(cell*0.30), 0, Math.PI*2);
+      ctx.fill();
+
+      ctx.strokeStyle = item.type === "weapon" ? `rgba(255,210,120,${ringA})` : `rgba(180,200,255,${ringA})`;
+      ctx.lineWidth = Math.max(1, Math.floor(2*this.dpr));
+      ctx.beginPath();
+      ctx.arc(cx, cy, Math.floor(cell*0.22), 0, Math.PI*2);
+      ctx.stroke();
+
+      if (item.rarity !== "common") {
+        ctx.strokeStyle = item.rarity === "epic" ? "rgba(220,190,255,0.80)" : "rgba(231,240,255,0.55)";
+        ctx.beginPath();
+        ctx.arc(cx, cy, Math.floor(cell*0.36), 0, Math.PI*2);
+        ctx.stroke();
+      }
+
+      ctx.fillStyle = "rgba(231,240,255,0.92)";
+      ctx.font = `${Math.floor(cell*0.50)}px system-ui`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(item.type === "weapon" ? "⬆" : "⬒", cx, cy);
+      ctx.textAlign = "left";
+      ctx.textBaseline = "alphabetic";
+    }
+
+    // Enemies (visible only)
     for (const e of enemies){
       if (e.isBoss){
-        // draw boss trail segments only if visible
         if (Array.isArray(e.trail)){
           for (let i=e.trail.length-1;i>=0;i--){
             const seg = e.trail[i];
-            const tx = seg.px;
-            const ty = seg.py;
-            if (!isVisible(Math.round(tx), Math.round(ty))) continue;
+            const tx = Math.round(seg.px);
+            const ty = Math.round(seg.py);
+            if (!isVisible(tx, ty)) continue;
 
             const sx = ox + seg.px*cell + cell/2;
             const sy = oy + seg.py*cell + cell/2;
@@ -121,7 +184,6 @@ export class Renderer{
           }
         }
 
-        // boss head only if visible
         if (!isVisible(e.x, e.y)) continue;
 
         const ex = ox + e.px*cell + cell/2;
@@ -149,7 +211,6 @@ export class Renderer{
         continue;
       }
 
-      // normal enemy
       if (!isVisible(e.x, e.y)) continue;
 
       const ex = ox + e.px*cell + cell/2;
@@ -176,7 +237,7 @@ export class Renderer{
     ctx.arc(px, py, Math.floor(cell*0.32), 0, Math.PI*2);
     ctx.fill();
 
-    // --- Soft fog overlay: unseen very dark, seen-but-not-visible dim ---
+    // Soft fog overlay
     if (fog?.seen && fog?.visible){
       for (let y=0;y<rows;y++){
         for (let x=0;x<cols;x++){
@@ -184,7 +245,6 @@ export class Renderer{
           if (vis) continue;
 
           const seen = isSeen(x,y);
-          // Soft fog values
           ctx.fillStyle = seen ? "rgba(0,0,0,0.55)" : "rgba(0,0,0,0.82)";
           ctx.fillRect(ox + x*cell, oy + y*cell, cell, cell);
         }
@@ -195,6 +255,7 @@ export class Renderer{
     ctx.fillStyle = "rgba(231,240,255,0.88)";
     ctx.font = `${14*this.dpr}px system-ui`;
     ctx.fillText(`Floor: ${floor}`, 12*this.dpr, 18*this.dpr);
+
     ctx.fillText(`HP: ${player.stats.hp}/${player.stats.maxHp}  XP: ${player.stats.xp}`, 12*this.dpr, 38*this.dpr);
     ctx.fillText(`Keys: ${keysHave}/${keysNeed}`, 12*this.dpr, 58*this.dpr);
 
@@ -204,13 +265,24 @@ export class Renderer{
     ctx.font = `${12*this.dpr}px system-ui`;
     ctx.fillText(`Gear: Weapon T${wt}  Armor T${at}`, 12*this.dpr, 78*this.dpr);
 
+    ctx.fillStyle = "rgba(255,210,120,0.80)";
+    ctx.fillText(`Scrap: ${player.stats.scrap || 0}  Panic: ${player.stats.panicCharges || 0}`, 12*this.dpr, 98*this.dpr);
+
+    // Scan status
+    if (scan){
+      ctx.fillStyle = "rgba(231,240,255,0.60)";
+      ctx.font = `${12*this.dpr}px system-ui`;
+      const s = scan.cooldown > 0 ? `Scan CD: ${scan.cooldown.toFixed(0)}s` : (scan.active > 0 ? `Scan ACTIVE` : `Scan READY`);
+      ctx.fillText(s, 12*this.dpr, 118*this.dpr);
+    }
+
     // Toast message
     if (toast?.text){
       ctx.fillStyle = "rgba(5,8,18,0.55)";
       const tw = Math.min(this.vw - 24*this.dpr, 520*this.dpr);
       const th = 30*this.dpr;
       const tx = 12*this.dpr;
-      const ty = 92*this.dpr;
+      const ty = 132*this.dpr;
       ctx.fillRect(tx, ty, tw, th);
 
       ctx.fillStyle = "rgba(231,240,255,0.92)";
