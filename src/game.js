@@ -15,77 +15,100 @@ export class Game {
     this.mode = "explore"; // "explore" | "battle"
     this.currentEnemyId = null;
 
-    // World config
     this.cols = 21;
     this.rows = 27;
 
+    // Persistent run state
+    this.floor = 1;
+
     // Wire battle callbacks
     this.battleUI.onWin = (enemySnapshot) => {
-      // Award XP based on enemy
       const xpGain = enemySnapshot.xpValue ?? 5;
       this.player.stats.xp += xpGain;
 
-      // Remove the enemy from the map
       if (this.currentEnemyId != null) {
         this.enemies = this.enemies.filter((e) => e.id !== this.currentEnemyId);
         this.currentEnemyId = null;
       }
-
-      // You can exit now
-      // (BattleUI enables Exit on end)
+      // Exit button becomes available in battle UI when it ends
     };
 
     this.battleUI.onLose = () => {
-      // Hard reset for now (later: medbay, revive items, etc.)
-      this.resetRun();
+      // Hard reset
+      this.floor = 1;
+      this.resetRun(true);
       this.battleUI.close();
       this.mode = "explore";
       this.currentEnemyId = null;
     };
 
     this.battleUI.onExit = () => {
-      // Return to maze after battle ends
       this.mode = "explore";
     };
 
-    this.resetRun();
+    this.resetRun(true);
   }
 
-  resetRun() {
-    const { grid, pellets, start } = generateMaze(this.cols, this.rows);
+  // If fullReset=true, we reset stats too. Otherwise we keep stats/loadout across floors.
+  resetRun(fullReset = false) {
+    const { grid, pellets, start, exit } = generateMaze(this.cols, this.rows);
 
     this.grid = grid;
     this.pellets = pellets;
+    this.exit = exit;
 
-    this.player = {
-      x: start.x,
-      y: start.y,
-      px: start.x,
-      py: start.y,
-      dir: { x: 0, y: 0 },
-      nextDir: { x: 0, y: 0 },
-      speed: 10.0,
-      stats: {
-        // Simple RPG sheet (we’ll grow this later)
-        hp: 20,
-        maxHp: 20,
-        ac: 12,
-        atk: 3,
-        str: 2, // sword damage mod
-        int: 1, // blaster damage mod
-        xp: 0,
-      },
-      loadout: {
-        melee: { name: "Space Sword", dmgDice: { count: 1, sides: 8 } },
-        ranged: { name: "Blaster", dmgDice: { count: 1, sides: 6 } },
-      },
-    };
+    if (fullReset || !this.player) {
+      this.player = {
+        x: start.x,
+        y: start.y,
+        px: start.x,
+        py: start.y,
+        dir: { x: 0, y: 0 },
+        nextDir: { x: 0, y: 0 },
+        speed: 10.0,
+        stats: {
+          hp: 20,
+          maxHp: 20,
+          ac: 12,
+          atk: 3,
+          str: 2,
+          int: 1,
+          xp: 0,
+        },
+        loadout: {
+          melee: { name: "Space Sword", dmgDice: { count: 1, sides: 8 } },
+          ranged: { name: "Blaster", dmgDice: { count: 1, sides: 6 } },
+        },
+      };
+    } else {
+      // carry stats, just reposition
+      this.player.x = start.x;
+      this.player.y = start.y;
+      this.player.px = start.x;
+      this.player.py = start.y;
+      this.player.dir = { x: 0, y: 0 };
+      this.player.nextDir = { x: 0, y: 0 };
+
+      // tiny heal between floors (feels good)
+      const heal = Math.max(1, Math.floor(this.player.stats.maxHp * 0.2));
+      this.player.stats.hp = Math.min(this.player.stats.maxHp, this.player.stats.hp + heal);
+    }
 
     this.enemyIdCounter = 1;
-    this.enemies = this.spawnEnemies(4);
+    this.enemies = this.spawnEnemies(this.enemyCountForFloor(this.floor));
     this.currentEnemyId = null;
 
     this.mode = "explore";
+  }
+
+  enemyCountForFloor(floor){
+    // scales gently
+    return Math.min(10, 4 + Math.floor((floor - 1) * 0.8));
+  }
+
+  nextFloor(){
+    this.floor += 1;
+    this.resetRun(false);
   }
 
   resize() {
@@ -111,6 +134,12 @@ export class Game {
     const key = `${this.player.x},${this.player.y}`;
     if (this.pellets.has(key)) this.pellets.delete(key);
 
+    // Step onto portal to go next floor
+    if (this.exit && this.player.x === this.exit.x && this.player.y === this.exit.y) {
+      this.nextFloor();
+      return;
+    }
+
     const hit = this.checkEnemyCollision();
     if (hit) {
       this.mode = "battle";
@@ -120,7 +149,7 @@ export class Game {
   }
 
   render() {
-    this.renderer.draw(this.grid, this.pellets, this.player, this.enemies);
+    this.renderer.draw(this.grid, this.pellets, this.player, this.enemies, this.exit, this.floor);
   }
 
   // ---------- Grid helpers ----------
@@ -189,7 +218,11 @@ export class Game {
       { name: "Rust Reaper",  ac: 13, atk: 2, dmgSides: 8, dmgMod: 0, maxHp: 12, xpValue: 8, speed: 6.6 },
     ];
 
-    while (enemies.length < n && tries < 2000) {
+    // difficulty nudge per floor
+    const hpBonus = Math.floor((this.floor - 1) * 0.6);
+    const acBonus = Math.floor((this.floor - 1) * 0.25);
+
+    while (enemies.length < n && tries < 4000) {
       tries++;
 
       const x = 1 + Math.floor(Math.random() * (this.cols - 2));
@@ -197,11 +230,13 @@ export class Game {
 
       if (!this.isFloor(x, y)) continue;
       if (x === this.player.x && y === this.player.y) continue;
+      if (this.exit && x === this.exit.x && y === this.exit.y) continue;
 
       const dist = Math.abs(x - this.player.x) + Math.abs(y - this.player.y);
       if (dist < 6) continue;
 
       const t = templates[Math.floor(Math.random() * templates.length)];
+      const maxHp = t.maxHp + hpBonus;
 
       enemies.push({
         id: this.enemyIdCounter++,
@@ -212,9 +247,9 @@ export class Game {
         py: y,
         dir: { x: 0, y: 0 },
         speed: t.speed,
-        hp: t.maxHp,
-        maxHp: t.maxHp,
-        ac: t.ac,
+        hp: maxHp,
+        maxHp: maxHp,
+        ac: t.ac + acBonus,
         atk: t.atk,
         dmgSides: t.dmgSides,
         dmgMod: t.dmgMod,
