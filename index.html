@@ -9,6 +9,34 @@
 <body>
   <div id="app">
     <canvas id="game"></canvas>
+    
+        <!-- Encounter overlay -->
+    <div id="encounter" class="hidden">
+      <div class="panel">
+        <div class="title">ENCOUNTER</div>
+        <div id="encounter-sub" class="sub">A hostile signal in the corridor…</div>
+
+        <div class="row">
+          <div class="label">Enemy</div>
+          <div id="enemy-name" class="value">Drone</div>
+        </div>
+
+        <div class="row">
+          <div class="label">Enemy HP</div>
+          <div id="enemy-hp" class="value">10 / 10</div>
+        </div>
+
+        <div class="row">
+          <div class="label">Roll</div>
+          <div id="roll-out" class="value">-</div>
+        </div>
+
+        <div class="btnrow">
+          <button id="btn-roll">Roll d20</button>
+          <button id="btn-exit">Exit</button>
+        </div>
+      </div>
+    </div>
 
     <!-- Mobile controls -->
     <div id="controls">
