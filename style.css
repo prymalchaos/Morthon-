@@ -61,7 +61,7 @@ button{
   padding:14px 16px;
   border-radius:14px;
   font-size:18px;
-  font-weight:700;
+  font-weight:800;
 }
 
 button:active{
@@ -85,6 +85,7 @@ button:active{
   opacity:0.35;
 }
 
+/* Encounter overlay */
 #encounter{
   position:fixed;
   inset:0;
@@ -99,7 +100,7 @@ button:active{
 #encounter.hidden{ display:none; }
 
 #encounter .panel{
-  width:min(520px, 100%);
+  width:min(560px, 100%);
   border-radius:18px;
   border:1px solid rgba(231,240,255,0.18);
   background:linear-gradient(180deg, rgba(18,34,72,0.95), rgba(12,20,38,0.95));
@@ -110,13 +111,19 @@ button:active{
 #encounter .title{
   font-weight:900;
   letter-spacing:2px;
-  opacity:0.9;
+  opacity:0.95;
   margin-bottom:6px;
 }
 
 #encounter .sub{
-  opacity:0.8;
+  opacity:0.82;
   margin-bottom:12px;
+}
+
+#encounter .grid{
+  border-top:1px solid rgba(231,240,255,0.12);
+  border-bottom:1px solid rgba(231,240,255,0.12);
+  margin-bottom:10px;
 }
 
 #encounter .row{
@@ -124,17 +131,43 @@ button:active{
   justify-content:space-between;
   gap:12px;
   padding:10px 0;
-  border-top:1px solid rgba(231,240,255,0.12);
 }
 
 #encounter .label{ opacity:0.75; }
-#encounter .value{ font-weight:800; }
+#encounter .value{ font-weight:900; }
+
+#encounter .log{
+  height:120px;
+  overflow:auto;
+  padding:10px;
+  border-radius:14px;
+  border:1px solid rgba(231,240,255,0.12);
+  background:rgba(5,8,18,0.45);
+  font-size:14px;
+  line-height:1.25;
+  margin:10px 0 12px;
+}
+
+#encounter .log div{
+  padding:4px 0;
+  border-bottom:1px dashed rgba(231,240,255,0.08);
+}
 
 #encounter .btnrow{
   display:flex;
   gap:10px;
-  margin-top:14px;
+  margin-top:10px;
 }
+
 #encounter .btnrow button{
   flex:1;
+}
+
+#btn-exit{
+  opacity:0.9;
+}
+
+button[disabled]{
+  opacity:0.45;
+  filter:saturate(0.75);
 }
