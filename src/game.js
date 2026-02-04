@@ -1076,4 +1076,127 @@ export class Game {
   // ----------------------------
   checkEnemyCollision() {
     const px = this.player.x | 0;
-   
+    const py = this.player.y | 0;
+
+    for (const e of this.enemies) {
+      const ex = Math.round(e.px);
+      const ey = Math.round(e.py);
+      if (ex === px && ey === py) return e;
+    }
+    return null;
+  }
+
+  // ----------------------------
+  // Resize / loop
+  // ----------------------------
+  resize() {
+    const dpr = Math.max(1, Math.floor(window.devicePixelRatio || 1));
+    const rect = this.canvas.getBoundingClientRect();
+    this.canvas.width = Math.floor(rect.width * dpr);
+    this.canvas.height = Math.floor(rect.height * dpr);
+    this.renderer.setViewport(this.canvas.width, this.canvas.height, dpr);
+  }
+
+  update(dt) {
+    // toast
+    if (this.toast.t > 0) {
+      this.toast.t = Math.max(0, this.toast.t - dt);
+      if (this.toast.t === 0) this.toast.text = "";
+    }
+
+    // scan timers
+    if (this.scan.active > 0) this.scan.active = Math.max(0, this.scan.active - dt);
+    if (this.scan.cooldown > 0) this.scan.cooldown = Math.max(0, this.scan.cooldown - dt);
+    this.updateScanButtonText();
+
+    // pause world during battle/modal
+    if (this.mode === "battle" || this.mode === "modal") return;
+
+    // input
+    const wanted = this.input.consumeDirection();
+    if (wanted) this.player.nextDir = wanted;
+
+    // move
+    this.stepPlayer(dt);
+    this.player.x = Math.round(this.player.px);
+    this.player.y = Math.round(this.player.py);
+
+    for (const e of this.enemies) this.stepEnemy(e, dt);
+    for (const e of this.enemies) {
+      e.x = Math.round(e.px);
+      e.y = Math.round(e.py);
+    }
+
+    // fog
+    this.computeVisibility();
+
+    // pickups
+    const pkey = keyOf(this.player.x, this.player.y);
+
+    // pellets => cells (power scan + small sustain)
+    if (this.pellets.has(pkey)) {
+      this.pellets.delete(pkey);
+      this.player.stats.cells = (this.player.stats.cells || 0) + 1;
+
+      // every 10 cells -> +1 HP
+      if ((this.player.stats.cells % 10) === 0) {
+        this.healPlayer(1);
+        this.toastMessage("+1 HP (Cells surge)", 1.0);
+      }
+    }
+
+    if (this.medkits.has(pkey)) {
+      this.medkits.delete(pkey);
+      this.healPlayer(7);
+      this.toastMessage("+7 HP (Medkit)", 1.2);
+    }
+
+    this.pickupLootIfAny();
+
+    // store
+    if (this.player.x === this.store.x && this.player.y === this.store.y) {
+      this.openStore();
+      return;
+    }
+
+    // exit
+    if (this.exit && this.player.x === this.exit.x && this.player.y === this.exit.y) {
+      if (this.keysHave >= this.keysNeed) {
+        this.nextFloor();
+      } else {
+        this.toastMessage(`Exit locked. Keys: ${this.keysHave}/${this.keysNeed}`, 1.0);
+      }
+      return;
+    }
+
+    // battle engage
+    const hit = this.checkEnemyCollision();
+    if (hit) {
+      this.mode = "battle";
+      this.currentEnemyId = hit.id;
+      this._setBattleState(true);
+
+      hit.stance = hit.stance || choice(["Sword", "Gun", "Shield"]);
+      this.battleUI.open(hit, this.player);
+    }
+  }
+
+  render() {
+    this.renderer.draw(
+      this.grid,
+      this.pellets,
+      this.medkits,
+      this.loot,
+      this.store,
+      this.player,
+      this.enemies,
+      this.exit,
+      this.floor,
+      this.keysHave,
+      this.keysNeed,
+      this.toast,
+      this.fog,
+      this.scan
+    );
+  }
+}
