@@ -24,11 +24,13 @@
         display: block;
       }
 
-      /* Battle overlay */
+      /* ----------------------------
+         Battle overlay (now ABOVE all)
+         ---------------------------- */
       #encounter {
         position: fixed;
         inset: 0;
-        z-index: 9000;
+        z-index: 20000; /* was 9000, now guaranteed above D-pad + buttons */
         display: flex;
         align-items: flex-end;
         justify-content: center;
@@ -119,10 +121,15 @@
         gap: 10px;
       }
 
-      /* NOTE:
-         We removed the old Action/Menu buttons entirely, per request.
-         Only battle controls + the D-pad exist now.
-      */
+      /* ----------------------------
+         When in battle: hide controls
+         ---------------------------- */
+      body.in-battle #dpad-wrap,
+      body.in-battle #scan-btn,
+      body.in-battle #dev-btn,
+      body.in-battle #dev-panel {
+        display: none !important;
+      }
     </style>
   </head>
   <body>
