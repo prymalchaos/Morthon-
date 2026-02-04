@@ -1,5 +1,5 @@
-export class BattleUI{
-  constructor(){
+export class BattleUI {
+  constructor() {
     this.el = document.getElementById("encounter");
     this.enemyNameEl = document.getElementById("enemy-name");
     this.enemyHpEl = document.getElementById("enemy-hp");
@@ -23,34 +23,22 @@ export class BattleUI{
     this.enemy = null;
     this.player = null;
 
-    this.temp = {
-      guarding: false,
-      guardDR: 0
-    };
+    this.temp = { guarding: false, guardDR: 0 };
 
-    // stance reveal only at combat start
     this.stanceKnown = true;
     this.firstActionTaken = false;
 
-    // commit mechanic (hold button)
-    this.commit = {
-      holding: null,
-      timer: null,
-      armed: false,
-      thresholdMs: 320
-    };
+    this.commit = { holding: null, timer: null, armed: false, thresholdMs: 320 };
 
     this.onWin = null;
     this.onLose = null;
     this.onExit = null;
 
-    // click actions still work (normal attack)
     this.btnAttack.addEventListener("click", () => this.playerAction("sword", { commit: false }));
     this.btnTech.addEventListener("click", () => this.playerAction("gun", { commit: false }));
     this.btnDefend.addEventListener("click", () => this.playerAction("shield", { commit: false }));
     this.btnPanic.addEventListener("click", () => this.playerAction("panic", { commit: false }));
 
-    // hold-to-commit on sword/gun/shield (panic stays click-only)
     this.bindCommitHold(this.btnAttack, "sword");
     this.bindCommitHold(this.btnTech, "gun");
     this.bindCommitHold(this.btnDefend, "shield");
@@ -62,7 +50,7 @@ export class BattleUI{
     });
   }
 
-  bindCommitHold(button, kind){
+  bindCommitHold(button, kind) {
     const down = () => {
       if (!this.isOpen || this.turn !== "player") return;
       this.commit.holding = kind;
@@ -70,7 +58,6 @@ export class BattleUI{
 
       this.commit.timer = setTimeout(() => {
         this.commit.armed = true;
-        // fire commit action immediately when threshold reached
         this.playerAction(kind, { commit: true });
       }, this.commit.thresholdMs);
     };
@@ -78,9 +65,6 @@ export class BattleUI{
     const up = () => {
       if (this.commit.timer) clearTimeout(this.commit.timer);
       this.commit.timer = null;
-
-      // If the commit already fired, do nothing.
-      // If it didn’t fire, the normal click handler will run.
       this.commit.holding = null;
       this.commit.armed = false;
     };
@@ -91,7 +75,7 @@ export class BattleUI{
     button.addEventListener("pointerleave", up);
   }
 
-  open(enemy, player){
+  open(enemy, player) {
     this.isOpen = true;
     this.enemy = JSON.parse(JSON.stringify(enemy));
     this.player = player;
@@ -110,17 +94,18 @@ export class BattleUI{
     const ew = this.prettyWeapon(this.enemy.weaponType);
     const stanceLine = this.stanceLine(this.enemy.weaponType);
 
-    if (this.subEl){
+    if (this.subEl) {
       const bossTag = this.enemy.isBoss ? ` | Boss Phase ${this.enemy.phase}/3` : "";
       this.subEl.textContent = `Enemy stance: ${ew}${bossTag}`;
     }
 
     this.log(`Combat engaged. ${this.enemy.name} ${stanceLine}`);
-    this.log(`Tip: hold Sword/Gun/Shield to COMMIT (higher hit chance, risky).`);
+    this.log(`Tip: hold Sword/Gun/Shield to COMMIT.`);
+    this.log(`Cells power Scan (explore) and can fuel Panic.`);
     this.setButtonsEnabled(true);
   }
 
-  close(){
+  close() {
     this.isOpen = false;
     this.el.classList.add("hidden");
     this.enemy = null;
@@ -128,7 +113,7 @@ export class BattleUI{
     this.turn = "end";
   }
 
-  syncUI(lastRollText = "-"){
+  syncUI(lastRollText = "-") {
     this.enemyNameEl.textContent = this.enemy?.name ?? "-";
     this.enemyHpEl.textContent = this.enemy ? `${this.enemy.hp} / ${this.enemy.maxHp}` : "-";
     const ps = this.player?.stats;
@@ -136,15 +121,15 @@ export class BattleUI{
     this.rollOutEl.textContent = lastRollText;
   }
 
-  clearLog(){ this.logEl.innerHTML = ""; }
+  clearLog() { this.logEl.innerHTML = ""; }
 
-  log(text){
+  log(text) {
     const div = document.createElement("div");
     div.textContent = text;
     this.logEl.prepend(div);
   }
 
-  setButtonsEnabled(enabled){
+  setButtonsEnabled(enabled) {
     this.btnAttack.disabled = !enabled;
     this.btnTech.disabled = !enabled;
     this.btnDefend.disabled = !enabled;
@@ -152,52 +137,47 @@ export class BattleUI{
     this.btnExit.disabled = (this.turn !== "end");
   }
 
-  // ---------- RPS / Matchups ----------
-  matchup(attackerWeapon, defenderWeapon){
+  matchup(attackerWeapon, defenderWeapon) {
     if (attackerWeapon === defenderWeapon) return "neutral";
-    // Sword > Gun, Gun > Shield, Shield > Sword
     if (attackerWeapon === "sword" && defenderWeapon === "gun") return "adv";
     if (attackerWeapon === "gun" && defenderWeapon === "shield") return "adv";
     if (attackerWeapon === "shield" && defenderWeapon === "sword") return "adv";
     return "dis";
   }
 
-  randomWeapon(){
+  randomWeapon() {
     const r = this.rollDie(3);
     return r === 1 ? "sword" : (r === 2 ? "gun" : "shield");
   }
 
-  prettyWeapon(w){
+  prettyWeapon(w) {
     if (w === "sword") return "Sword";
     if (w === "gun") return "Gun";
     if (w === "shield") return "Shield";
     return "Weapon";
   }
 
-  stanceLine(w){
+  stanceLine(w) {
     if (w === "sword") return "draws a blade.";
     if (w === "gun") return "withdraws a gun.";
     if (w === "shield") return "raises a shield.";
     return "prepares.";
   }
 
-  updateStanceUI(){
+  updateStanceUI() {
     if (!this.subEl) return;
     const bossTag = this.enemy?.isBoss ? ` | Boss Phase ${this.enemy.phase}/3` : "";
-    if (this.stanceKnown){
-      this.subEl.textContent = `Enemy stance: ${this.prettyWeapon(this.enemy.weaponType)}${bossTag}`;
-    } else {
-      this.subEl.textContent = `Enemy stance: ???${bossTag}`;
-    }
+    this.subEl.textContent = this.stanceKnown
+      ? `Enemy stance: ${this.prettyWeapon(this.enemy.weaponType)}${bossTag}`
+      : `Enemy stance: ???${bossTag}`;
   }
 
-  // ---------- Dice ----------
-  rollDie(sides){
-    if (crypto?.getRandomValues){
+  rollDie(sides) {
+    if (crypto?.getRandomValues) {
       const buf = new Uint32Array(1);
       const max = 0xFFFFFFFF;
       const limit = max - (max % sides);
-      while (true){
+      while (true) {
         crypto.getRandomValues(buf);
         const v = buf[0];
         if (v < limit) return (v % sides) + 1;
@@ -206,19 +186,19 @@ export class BattleUI{
     return Math.floor(Math.random() * sides) + 1;
   }
 
-  rollD20(mode){
+  rollD20(mode) {
     const a = this.rollDie(20);
     if (mode === "neutral") return { roll: a, text: `d20 ${a}` };
     const b = this.rollDie(20);
-    const pick = (mode === "adv") ? Math.max(a,b) : Math.min(a,b);
+    const pick = (mode === "adv") ? Math.max(a, b) : Math.min(a, b);
     const tag = (mode === "adv") ? "ADV" : "DIS";
     return { roll: pick, text: `${tag} d20 (${a},${b}) → ${pick}` };
   }
 
-  rollDice(count, sides){
+  rollDice(count, sides) {
     let total = 0;
     const rolls = [];
-    for (let i=0;i<count;i++){
+    for (let i = 0; i < count; i++) {
       const r = this.rollDie(sides);
       rolls.push(r);
       total += r;
@@ -226,45 +206,33 @@ export class BattleUI{
     return { total, rolls };
   }
 
-  adjustDiceCount(baseCount, mode){
+  adjustDiceCount(baseCount, mode) {
     if (mode === "adv") return baseCount + 1;
     if (mode === "dis") return Math.max(1, baseCount - 1);
     return baseCount;
   }
 
-  weaponProfile(kind){
+  weaponProfile(kind) {
     const tier = this.player?.gear?.weaponTier ?? 1;
-
     if (tier === 1) return { count: 1, sides: (kind === "sword") ? 8 : 6, flat: 0 };
     if (tier === 2) return { count: 1, sides: (kind === "sword") ? 10 : 8, flat: 0 };
-
     const extra = Math.max(0, tier - 3);
-    return {
-      count: 2,
-      sides: (kind === "sword") ? 8 : 6,
-      flat: extra
-    };
+    return { count: 2, sides: (kind === "sword") ? 8 : 6, flat: extra };
   }
 
-  // ---------- Combat ----------
-  playerAction(kind, { commit = false } = {}){
+  playerAction(kind, { commit = false } = {}) {
     if (!this.isOpen || this.turn !== "player") return;
 
-    // If this was triggered by the hold-to-commit timer, prevent the click that follows
-    // by disabling buttons immediately.
     if (commit) {
-      // already in click path? ignore
       if (this.btnAttack.disabled || this.btnTech.disabled || this.btnDefend.disabled) return;
     }
 
-    // First player action flips stance visibility OFF for the rest of the fight
-    if (!this.firstActionTaken){
+    if (!this.firstActionTaken) {
       this.firstActionTaken = true;
       this.stanceKnown = false;
       this.updateStanceUI();
     }
 
-    // New action cancels guard
     this.temp.guarding = false;
     this.temp.guardDR = 0;
 
@@ -272,61 +240,65 @@ export class BattleUI{
 
     const ps = this.player.stats;
 
-    // randomize stance after first reveal
-    if (!this.stanceKnown){
-      this.enemy.weaponType = this.randomWeapon();
-    }
+    if (!this.stanceKnown) this.enemy.weaponType = this.randomWeapon();
 
-    if (kind === "shield"){
-      // Commit with shield: stronger guard, but if you guessed wrong you get “shattered” (lose DR next hit)
+    if (kind === "shield") {
       this.temp.guarding = true;
       this.temp.guardDR = 2 + Math.floor((ps.str || 0) / 2);
       if (commit) this.temp.guardDR += 1;
 
       this.syncUI("-");
-      this.log(`${commit ? "COMMIT: " : ""}You raise your Shield. Guard active (DR ${this.temp.guardDR}).`);
+      this.log(`${commit ? "COMMIT: " : ""}Shield up. Guard active (DR ${this.temp.guardDR}).`);
       this.endPlayerTurn();
       return;
     }
 
-    if (kind === "panic"){
-      // Panic Battery: if you have charges, Panic costs 0 HP and consumes a charge
+    if (kind === "panic") {
+      // NEW: Panic can be paid with Cells OR with HP.
+      // Priority:
+      // 1) Panic Battery charge => free
+      // 2) Spend Cells (cost 8)
+      // 3) Spend HP (cost 3)
+      const cellCost = 8;
+      let paid = "hp";
       let cost = 3;
-      if ((ps.panicCharges || 0) > 0){
-        cost = 0;
-        ps.panicCharges -= 1;
-        this.log(`Panic Battery discharged. (Free Panic)`);
-      }
 
-      if (ps.hp <= cost){
-        this.syncUI("-");
-        this.log("Panic failed. Not enough HP to trigger the overload.");
-        this.endPlayerTurn();
-        return;
+      if ((ps.panicCharges || 0) > 0) {
+        ps.panicCharges -= 1;
+        paid = "battery";
+        cost = 0;
+      } else if ((ps.cells || 0) >= cellCost) {
+        ps.cells -= cellCost;
+        paid = "cells";
+        cost = 0;
+      } else {
+        if (ps.hp <= cost) {
+          this.syncUI("-");
+          this.log("Panic failed. Not enough HP.");
+          this.endPlayerTurn();
+          return;
+        }
+        ps.hp -= cost;
       }
-      ps.hp -= cost;
 
       const dmg = this.rollDice(2, 6);
       this.enemy.hp = Math.max(0, this.enemy.hp - dmg.total);
 
       this.syncUI(`Panic: ${dmg.rolls.join("+")} = ${dmg.total}`);
-      this.log(`PANIC OVERLOAD! You ${cost ? `take ${cost} HP` : "take no HP"}. Enemy takes ${dmg.total}.`);
+      if (paid === "battery") this.log(`PANIC OVERLOAD! (Battery) Enemy takes ${dmg.total}.`);
+      else if (paid === "cells") this.log(`PANIC OVERLOAD! (-${cellCost} Cells) Enemy takes ${dmg.total}.`);
+      else this.log(`PANIC OVERLOAD! (-${cost} HP) Enemy takes ${dmg.total}.`);
 
-      if (this.enemy.hp <= 0){ this.win(); return; }
+      if (this.enemy.hp <= 0) { this.win(); return; }
       this.endPlayerTurn();
       return;
     }
 
-    // Sword / Gun attack
     const enemyW = this.enemy.weaponType || "sword";
     const playerW = kind;
 
     const mode = this.matchup(playerW, enemyW);
 
-    // Commit mechanic:
-    // - +2 to hit (less whiff)
-    // - but if you are at DISADVANTAGE, you take 1 backlash damage (the "bad read" punishment)
-    // - if you are at ADVANTAGE, you get +1 flat damage (momentum)
     const commitHitBonus = commit ? 2 : 0;
     const commitFlatDmg = commit && mode === "adv" ? 1 : 0;
     const backlash = commit && mode === "dis" ? 1 : 0;
@@ -344,13 +316,13 @@ export class BattleUI{
     this.syncUI(`${d20.text} +${atkMod}${commitHitBonus ? ` +${commitHitBonus}` : ""} = ${totalToHit}`);
     this.log(`${commit ? "COMMIT " : ""}${this.prettyWeapon(playerW)} clash: ${tag}.`);
 
-    if (backlash > 0){
+    if (backlash > 0) {
       ps.hp = Math.max(0, ps.hp - backlash);
-      this.log(`Backlash! You take ${backlash} damage for committing into a bad read.`);
-      if (ps.hp <= 0){ this.lose(); return; }
+      this.log(`Backlash! You take ${backlash} damage.`);
+      if (ps.hp <= 0) { this.lose(); return; }
     }
 
-    if (!hit){
+    if (!hit) {
       this.log(`Miss. (${totalToHit} vs AC ${this.enemy.ac})`);
       this.endPlayerTurn();
       return;
@@ -358,9 +330,8 @@ export class BattleUI{
 
     const wp = this.weaponProfile(kind);
 
-    // Epic passive: Overclock (10% chance to add +1 die)
     let overclockBonusDie = 0;
-    if (ps.passives?.overclock){
+    if (ps.passives?.overclock) {
       if (this.rollDie(10) === 10) overclockBonusDie = 1;
     }
 
@@ -372,35 +343,29 @@ export class BattleUI{
 
     this.enemy.hp = Math.max(0, this.enemy.hp - dmg);
 
-    if (overclockBonusDie){
-      this.log(`Overclock! +1 die.`);
-    }
-
+    if (overclockBonusDie) this.log(`Overclock! +1 die.`);
     this.log(`${isCrit ? "CRIT! " : ""}Hit for ${dmg}. Enemy HP ${this.enemy.hp}/${this.enemy.maxHp}.`);
 
-    if (this.enemy.hp <= 0){ this.win(); return; }
+    if (this.enemy.hp <= 0) { this.win(); return; }
     this.endPlayerTurn();
   }
 
-  endPlayerTurn(){
+  endPlayerTurn() {
     this.turn = "enemy";
     setTimeout(() => this.enemyTurn(), 320);
   }
 
-  enemyTurn(){
+  enemyTurn() {
     if (!this.isOpen || this.turn !== "enemy") return;
 
     const ps = this.player.stats;
 
-    // randomize stance each enemy act after first reveal
-    if (!this.stanceKnown){
-      this.enemy.weaponType = this.randomWeapon();
-    }
+    if (!this.stanceKnown) this.enemy.weaponType = this.randomWeapon();
     const enemyW = this.enemy.weaponType || "sword";
 
     const modeVsGuard = this.temp.guarding ? this.matchup(enemyW, "shield") : "neutral";
 
-    if (this.temp.guarding){
+    if (this.temp.guarding) {
       const tag = (modeVsGuard === "adv") ? "Advantage" : (modeVsGuard === "dis") ? "Disadvantage" : "Neutral";
       this.log(`${this.enemy.name} attacks into your Shield: ${tag}.`);
     } else {
@@ -419,13 +384,9 @@ export class BattleUI{
 
     this.syncUI(`${d20.text} +${atkMod} = ${totalToHit}`);
 
-    if (!hit){
+    if (!hit) {
       this.log(`Miss. (${totalToHit} vs AC ${playerAC})`);
-
-      if (this.temp.guarding && enemyW === "sword"){
-        this.counterBash();
-      }
-
+      if (this.temp.guarding && enemyW === "sword") this.counterBash();
       this.endEnemyTurn();
       return;
     }
@@ -434,21 +395,18 @@ export class BattleUI{
     const baseCount = 1;
 
     let count = baseCount;
-    if (this.temp.guarding){
-      count = this.adjustDiceCount(baseCount, modeVsGuard);
-    }
+    if (this.temp.guarding) count = this.adjustDiceCount(baseCount, modeVsGuard);
     if (isCrit) count *= 2;
 
     const base = this.rollDice(count, sides);
     let dmg = Math.max(1, base.total + (this.enemy.dmgMod || 0));
 
-    if (this.temp.guarding){
+    if (this.temp.guarding) {
       dmg = Math.max(0, dmg - (this.temp.guardDR || 0));
       this.log(`Guard absorbs ${this.temp.guardDR}.`);
     }
 
-    // Epic passive: Reactive Plating (once per battle reduce dmg by 1)
-    if (ps.passives?.reactivePlating && !ps._reactiveUsed && dmg > 0){
+    if (ps.passives?.reactivePlating && !ps._reactiveUsed && dmg > 0) {
       dmg = Math.max(0, dmg - 1);
       ps._reactiveUsed = true;
       this.log(`Reactive Plating triggers. (-1 dmg)`);
@@ -457,15 +415,12 @@ export class BattleUI{
     ps.hp = Math.max(0, ps.hp - dmg);
     this.log(`${isCrit ? "CRIT! " : ""}Hit for ${dmg}. Your HP ${ps.hp}/${ps.maxHp}.`);
 
-    if (this.temp.guarding && enemyW === "sword"){
-      this.counterBash();
-    }
-
-    if (ps.hp <= 0){ this.lose(); return; }
+    if (this.temp.guarding && enemyW === "sword") this.counterBash();
+    if (ps.hp <= 0) { this.lose(); return; }
     this.endEnemyTurn();
   }
 
-  counterBash(){
+  counterBash() {
     const ps = this.player.stats;
     const str = ps.str || 0;
     const dmgRoll = this.rollDice(1, 6);
@@ -474,12 +429,10 @@ export class BattleUI{
     this.enemy.hp = Math.max(0, this.enemy.hp - dmg);
     this.log(`COUNTER BASH! ${dmgRoll.rolls[0]} +${str} = ${dmg}. Enemy HP ${this.enemy.hp}/${this.enemy.maxHp}.`);
 
-    if (this.enemy.hp <= 0){
-      this.win();
-    }
+    if (this.enemy.hp <= 0) this.win();
   }
 
-  endEnemyTurn(){
+  endEnemyTurn() {
     this.temp.guarding = false;
     this.temp.guardDR = 0;
 
@@ -491,22 +444,19 @@ export class BattleUI{
     this.syncUI("-");
   }
 
-  win(){
+  win() {
     this.turn = "end";
     this.setButtonsEnabled(false);
     this.btnExit.disabled = false;
     this.syncUI("-");
 
-    if (this.enemy.isBoss){
-      this.log(`Boss phase shattered.`);
-    } else {
-      this.log(`Enemy neutralized. Keycard recovered.`);
-    }
+    if (this.enemy.isBoss) this.log(`Boss phase shattered.`);
+    else this.log(`Enemy neutralized. Keycard recovered.`);
 
     if (this.onWin) this.onWin(this.enemy);
   }
 
-  lose(){
+  lose() {
     this.turn = "end";
     this.setButtonsEnabled(false);
     this.btnExit.disabled = false;
