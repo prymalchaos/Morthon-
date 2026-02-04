@@ -28,12 +28,7 @@ export class Game {
     this.loot = [];
 
     // store terminal (one per floor)
-    this.store = {
-      x: -1,
-      y: -1,
-      open: false,
-      usedRerollThisFloor: false
-    };
+    this.store = { x: -1, y: -1, open: false, usedRerollThisFloor: false };
 
     // boss state
     this.boss = null;
@@ -43,11 +38,7 @@ export class Game {
     this.toast = { text: "", t: 0 };
 
     // fog of war (soft)
-    this.fog = {
-      radius: 5,
-      seen: [],
-      visible: []
-    };
+    this.fog = { radius: 5, seen: [], visible: [] };
 
     // scan (radar pulse)
     this.scan = {
@@ -55,15 +46,13 @@ export class Game {
       active: 0,
       cooldown: 0,
       duration: 3.0,
-      cooldownMax: 12.0
+      cooldownMax: 12.0,
+      cellCost: 6, // NEW: pellets become "Cells", scan consumes Cells
     };
     this.initScanButton();
 
     // UI overlays (loot choice + store)
-    this.ui = {
-      overlay: null,
-      modal: null
-    };
+    this.ui = { overlay: null, modal: null };
     this.initOverlayUI();
 
     // debug: allow URL to force starting floor
@@ -153,13 +142,24 @@ export class Game {
 
   tryScan() {
     if (this.mode !== "explore") return;
+
+    const ps = this.player.stats;
+    const cells = ps.cells || 0;
+
     if (this.scan.cooldown > 0) {
       this.toastMessage(`Scan recharging: ${this.scan.cooldown.toFixed(0)}s`, 1.0);
       return;
     }
+    if (cells < this.scan.cellCost) {
+      this.toastMessage(`Need ${this.scan.cellCost} Cells to scan.`, 1.2);
+      return;
+    }
+
+    ps.cells = cells - this.scan.cellCost;
     this.scan.active = this.scan.duration;
     this.scan.cooldown = this.scan.cooldownMax;
-    this.toastMessage(`RADAR PULSE`, 1.0);
+
+    this.toastMessage(`RADAR PULSE (-${this.scan.cellCost} Cells)`, 1.0);
   }
 
   // ---------- UI: Overlay + Modals (Loot / Store) ----------
@@ -318,7 +318,7 @@ export class Game {
     panel.appendChild(hint);
 
     btn.addEventListener("click", () => {
-      panel.style.display = (panel.style.display === "none") ? "block" : "none";
+      panel.style.display = panel.style.display === "none" ? "block" : "none";
       input.value = String(this.floor);
     });
 
@@ -385,7 +385,7 @@ export class Game {
 
     for (let y = 0; y < rows; y++) this.fog.visible[y].fill(false);
 
-    const bonus = (this.scan.active > 0) ? this.scan.bonusRadius : 0;
+    const bonus = this.scan.active > 0 ? this.scan.bonusRadius : 0;
     const r = (this.fog.radius + bonus) | 0;
 
     const sx = this.player.x | 0;
@@ -414,7 +414,7 @@ export class Game {
         { x: x + 1, y },
         { x: x - 1, y },
         { x, y: y + 1 },
-        { x, y: y - 1 }
+        { x, y: y - 1 },
       ];
 
       for (const nb of nbs) {
@@ -436,7 +436,6 @@ export class Game {
 
   // ---------- Loot ----------
   rollLootRarity({ source = "floor" } = {}) {
-    // Tune: drops are slightly juicier than floor spawns
     const r = Math.random();
     if (source === "boss") return "epic";
 
@@ -449,27 +448,19 @@ export class Game {
   }
 
   spawnLootAt(x, y, { source = "floor" } = {}) {
-    if (this.loot.some(l => l.x === x && l.y === y)) return;
+    if (this.loot.some((l) => l.x === x && l.y === y)) return;
 
-    const type = (Math.random() < 0.55) ? "weapon" : "armor";
+    const type = Math.random() < 0.55 ? "weapon" : "armor";
     const rarity = this.rollLootRarity({ source });
 
-    const item = {
-      x, y,
-      type,
-      rarity,
-      // effects are resolved on pickup (so we can scale to current stats/gear)
-      seed: Math.floor(Math.random() * 999999)
-    };
-
+    const item = { x, y, type, rarity, seed: Math.floor(Math.random() * 999999) };
     this.loot.push(item);
   }
 
   seedLoot(start) {
     const isBoss = this.isBossFloor(this.floor);
-
-    // floor loot count
     const count = isBoss ? 1 : (Math.random() < 0.55 ? 2 : 1);
+
     for (let i = 0; i < count; i++) {
       const p = this.findFarFloorTile(start, 10 + i * 2);
       this.spawnLootAt(p.x, p.y, { source: "floor" });
@@ -477,13 +468,10 @@ export class Game {
   }
 
   rerollLoot() {
-    // Replace all existing loot on the floor with new loot at same positions
     if (!this.loot.length) return;
-    const positions = this.loot.map(l => ({ x: l.x, y: l.y }));
+    const positions = this.loot.map((l) => ({ x: l.x, y: l.y }));
     this.loot = [];
-    for (const p of positions) {
-      this.spawnLootAt(p.x, p.y, { source: "floor" });
-    }
+    for (const p of positions) this.spawnLootAt(p.x, p.y, { source: "floor" });
     this.toastMessage("Loot rerolled.", 1.2);
   }
 
@@ -496,7 +484,6 @@ export class Game {
   describeLoot(item) {
     const rarityName = item.rarity.toUpperCase();
     const typeName = item.type === "weapon" ? "Weapon Cache" : "Armor Cache";
-
     const lines = [];
     lines.push(`${rarityName} ${typeName}`);
 
@@ -506,11 +493,9 @@ export class Game {
       if (item.type === "weapon") lines.push("+1 Weapon Tier, +1 ATK (burst)");
       else lines.push("+1 Armor Tier, +2 Max HP");
     } else {
-      // epic
       if (item.type === "weapon") lines.push("+1 Weapon Tier, Passive: Overclock (chance for +1 die)");
       else lines.push("+1 Armor Tier, Passive: Reactive Plating (-1 dmg once per battle)");
     }
-
     return lines;
   }
 
@@ -519,40 +504,27 @@ export class Game {
 
     if (item.type === "weapon") {
       this.player.gear.weaponTier = Math.min(6, (this.player.gear.weaponTier || 1) + 1);
-
-      // Rare: immediate ATK bump
-      if (item.rarity === "rare") {
-        ps.atk += 1;
-      }
-
-      // Epic passive: Overclock (chance to add 1 damage die on your attacks)
+      if (item.rarity === "rare") ps.atk += 1;
       if (item.rarity === "epic") {
         ps.passives = ps.passives || {};
         ps.passives.overclock = true;
       }
-
       this.toastMessage(`Weapon upgraded (${item.rarity}).`, 1.4);
       return;
     }
 
     if (item.type === "armor") {
       this.player.gear.armorTier = Math.min(6, (this.player.gear.armorTier || 1) + 1);
-
-      // baseline armor effect
       ps.ac += 1;
 
-      // Rare: max HP bump
       if (item.rarity === "rare") {
         ps.maxHp += 2;
         ps.hp = Math.min(ps.maxHp, ps.hp + 2);
       }
-
-      // Epic passive: Reactive Plating (once per battle reduce damage by 1)
       if (item.rarity === "epic") {
         ps.passives = ps.passives || {};
         ps.passives.reactivePlating = true;
       }
-
       this.toastMessage(`Armor upgraded (${item.rarity}).`, 1.4);
     }
   }
@@ -561,13 +533,11 @@ export class Game {
     const px = this.player.x;
     const py = this.player.y;
 
-    const idx = this.loot.findIndex(l => l.x === px && l.y === py);
+    const idx = this.loot.findIndex((l) => l.x === px && l.y === py);
     if (idx === -1) return;
 
     const item = this.loot[idx];
-    // remove from floor immediately so you can’t re-trigger
     this.loot.splice(idx, 1);
-
     this.openLootChoice(item);
   }
 
@@ -612,7 +582,6 @@ export class Game {
       t.textContent = lines[0];
       t.style.fontWeight = "700";
       t.style.marginBottom = "6px";
-
       card.appendChild(t);
 
       for (let i = 1; i < lines.length; i++) {
@@ -689,6 +658,7 @@ export class Game {
     const costScan = 10;
     const costReroll = 12;
     const costPanic = 9;
+    const costCellsToScrap = 10; // NEW: convert Cells -> Scrap
 
     const buy = (cost, fn, failMsg) => {
       const scrap = this.player.stats.scrap || 0;
@@ -711,7 +681,7 @@ export class Game {
       const s = document.createElement("div");
       s.style.marginTop = "8px";
       s.style.opacity = "0.85";
-      s.textContent = `Scrap: ${this.player.stats.scrap || 0}`;
+      s.textContent = `Scrap: ${this.player.stats.scrap || 0} | Cells: ${this.player.stats.cells || 0}`;
 
       const card = document.createElement("div");
       card.style.marginTop = "10px";
@@ -722,13 +692,12 @@ export class Game {
       card.style.lineHeight = "1.35";
       card.innerHTML =
         `<div style="font-weight:700;margin-bottom:6px;">Available</div>
-         <div style="opacity:0.9;">• Buy sustain, tune Scan, or gamble a reroll.</div>
-         <div style="opacity:0.9;">• Spend scrap (from scrapping loot).</div>`;
+         <div style="opacity:0.9;">• Scrap comes from scrapping loot.</div>
+         <div style="opacity:0.9;">• Cells come from pellets and power abilities.</div>`;
 
       const bMed = mkBtn(`Buy Medkit (+7 HP pickup)  [${costMedkit} scrap]`);
       bMed.addEventListener("click", () => {
         buy(costMedkit, () => {
-          // spawn medkit on the terminal tile (so you pick it up immediately by stepping back on it)
           this.medkits.add(`${this.store.x},${this.store.y}`);
           this.toastMessage("Medkit delivered.", 1.2);
           this.closeModal();
@@ -779,6 +748,19 @@ export class Game {
         }, `Need ${costReroll} scrap.`);
       });
 
+      const bCells = mkBtn(`Convert Cells → Scrap (+5 scrap)  [${costCellsToScrap} Cells]`);
+      bCells.addEventListener("click", () => {
+        const ps = this.player.stats;
+        if ((ps.cells || 0) < costCellsToScrap) {
+          this.toastMessage(`Need ${costCellsToScrap} Cells.`, 1.2);
+          return;
+        }
+        ps.cells -= costCellsToScrap;
+        ps.scrap = (ps.scrap || 0) + 5;
+        this.toastMessage("Converted Cells to Scrap.", 1.2);
+        this.closeModal();
+      });
+
       const bClose = mkBtn("CLOSE");
       bClose.style.background = "rgba(231,240,255,0.05)";
       bClose.addEventListener("click", () => this.closeModal());
@@ -791,20 +773,19 @@ export class Game {
       root.appendChild(bScan);
       root.appendChild(bPanic);
       root.appendChild(bReroll);
+      root.appendChild(bCells);
       root.appendChild(bClose);
     });
   }
 
   // ---------- Run / Floors ----------
-  isBossFloor(floor) {
-    return floor % 3 === 0;
-  }
+  isBossFloor(floor) { return floor % 3 === 0; }
 
   resetRun(fullReset = false) {
     const { grid, pellets, start, exit } = generateMaze(this.cols, this.rows);
 
     this.grid = grid;
-    this.pellets = pellets;
+    this.pellets = pellets; // pellets now represent "Cells" pickups
     this.exit = exit;
 
     this.medkits = new Set();
@@ -813,10 +794,8 @@ export class Game {
 
     if (fullReset || !this.player) {
       this.player = {
-        x: start.x,
-        y: start.y,
-        px: start.x,
-        py: start.y,
+        x: start.x, y: start.y,
+        px: start.x, py: start.y,
         dir: { x: 0, y: 0 },
         nextDir: { x: 0, y: 0 },
         speed: 10.0,
@@ -828,15 +807,12 @@ export class Game {
           str: 2,
           int: 1,
           xp: 0,
-          _pellets: 0,
           scrap: 0,
           panicCharges: 0,
+          cells: 0, // NEW: pellets feed this
           passives: {}
         },
-        gear: {
-          weaponTier: 1,
-          armorTier: 1
-        }
+        gear: { weaponTier: 1, armorTier: 1 }
       };
       this.keysHave = 0;
     } else {
@@ -851,24 +827,16 @@ export class Game {
       this.healPlayer(heal);
     }
 
-    // reset per-floor store state
     this.placeStore(start);
-
-    // init fog per floor
     this.initFogArrays();
 
-    if (this.isBossFloor(this.floor)) {
-      this.spawnBossFloor(start);
-    } else {
-      this.spawnNormalFloor(start);
-    }
+    if (this.isBossFloor(this.floor)) this.spawnBossFloor(start);
+    else this.spawnNormalFloor(start);
 
-    // seed floor loot after spawns
     this.seedLoot(start);
 
     this.mode = "explore";
     this.toastMessage(this.isBossFloor(this.floor) ? `BOSS FLOOR: Hunt the serpent.` : `Hunt keycards to unlock the exit.`);
-
     this.computeVisibility();
   }
 
@@ -949,7 +917,6 @@ export class Game {
       const drop = this.findFarFloorTile(start, 8);
       this.medkits.add(`${drop.x},${drop.y}`);
 
-      // boss phase drops a guaranteed floor loot (rare/epic skew)
       const lp = this.findFarFloorTile(start, 9);
       this.spawnLootAt(lp.x, lp.y, { source: "drop" });
 
@@ -960,12 +927,13 @@ export class Game {
     this.keysHave = this.keysNeed;
     this.toastMessage(`Boss defeated! Loot cache dropped.`, 1.4);
 
-    // Boss drops a guaranteed EPIC loot pickup (choice-based like everything else)
     const start = { x: this.player.x, y: this.player.y };
     const p = this.findFarFloorTile(start, 6);
-    // Force epic by passing source boss
-    const type = (Math.random() < 0.5) ? "weapon" : "armor";
+    const type = Math.random() < 0.5 ? "weapon" : "armor";
     this.loot.push({ x: p.x, y: p.y, type, rarity: "epic", seed: Math.floor(Math.random() * 999999) });
+
+    // reward some Cells too
+    this.player.stats.cells = (this.player.stats.cells || 0) + 12;
 
     this.enemies = [];
     this.boss = null;
@@ -1048,7 +1016,7 @@ export class Game {
         this.scanBtn.textContent = `SCAN ${this.scan.cooldown.toFixed(0)}s`;
         this.scanBtn.style.opacity = "0.7";
       } else {
-        this.scanBtn.textContent = "SCAN";
+        this.scanBtn.textContent = `SCAN (-${this.scan.cellCost})`;
         this.scanBtn.style.opacity = "1";
       }
     }
@@ -1069,11 +1037,14 @@ export class Game {
 
     const pkey = `${this.player.x},${this.player.y}`;
 
+    // Pellets now become "Cells"
     if (this.pellets.has(pkey)) {
       this.pellets.delete(pkey);
-      this.player.stats._pellets = (this.player.stats._pellets || 0) + 1;
-      if (this.player.stats._pellets % 6 === 0) {
+      this.player.stats.cells = (this.player.stats.cells || 0) + 1;
+      // tiny micro-reward: every 10 cells you auto-heal 1
+      if ((this.player.stats.cells % 10) === 0) {
         this.healPlayer(1);
+        this.toastMessage("+1 HP (Cells surge)", 1.0);
       }
     }
 
@@ -1083,12 +1054,9 @@ export class Game {
       this.toastMessage(`+7 HP (Medkit)`, 1.2);
     }
 
-    // loot pickup -> opens choice modal
     this.pickupLootIfAny();
 
-    // store terminal interaction
     if (this.player.x === this.store.x && this.player.y === this.store.y) {
-      // only open if not already open and if no modal currently
       this.openStore();
       return;
     }
@@ -1106,23 +1074,20 @@ export class Game {
     if (hit) {
       this.mode = "battle";
       this.currentEnemyId = hit.id;
-
-      // reset per-battle reactive plating usage flag
       this.player.stats._reactiveUsed = false;
-
       this.battleUI.open(hit, this.player);
     }
   }
 
   updateBossTrail(boss) {
-    const maxSeg = 12 + (boss.phase * 2);
+    const maxSeg = 12 + boss.phase * 2;
     if (!boss.trail) boss.trail = [];
 
     const last = boss.trail[0];
     const dx = last ? Math.abs(last.px - boss.px) : 999;
     const dy = last ? Math.abs(last.py - boss.py) : 999;
 
-    if (!last || (dx + dy) > 0.45) {
+    if (!last || dx + dy > 0.45) {
       boss.trail.unshift({ px: boss.px, py: boss.py });
       if (boss.trail.length > maxSeg) boss.trail.pop();
     }
@@ -1161,8 +1126,7 @@ export class Game {
   // ---------- Player movement ----------
   stepPlayer(dt) {
     const p = this.player;
-    const nearCenter =
-      Math.abs(p.px - p.x) < 0.001 && Math.abs(p.py - p.y) < 0.001;
+    const nearCenter = Math.abs(p.px - p.x) < 0.001 && Math.abs(p.py - p.y) < 0.001;
 
     if (nearCenter) {
       p.px = p.x;
@@ -1196,9 +1160,7 @@ export class Game {
   }
 
   isAtCenter(ent) {
-    return (
-      Math.abs(ent.px - ent.x) < 0.001 && Math.abs(ent.py - ent.y) < 0.001
-    );
+    return Math.abs(ent.px - ent.x) < 0.001 && Math.abs(ent.py - ent.y) < 0.001;
   }
 
   // ---------- Enemies ----------
@@ -1207,8 +1169,8 @@ export class Game {
     let tries = 0;
 
     const templates = [
-      { name: "Void Duelist", weaponType: "sword",  ac: 12, atk: 2, dmgSides: 8, dmgMod: 0, maxHp: 11, xpValue: 7, speed: 7.0 },
-      { name: "Gunner Drone", weaponType: "gun",    ac: 11, atk: 3, dmgSides: 6, dmgMod: 1, maxHp: 9,  xpValue: 6, speed: 7.4 },
+      { name: "Void Duelist", weaponType: "sword", ac: 12, atk: 2, dmgSides: 8, dmgMod: 0, maxHp: 11, xpValue: 7, speed: 7.0 },
+      { name: "Gunner Drone", weaponType: "gun", ac: 11, atk: 3, dmgSides: 6, dmgMod: 1, maxHp: 9, xpValue: 6, speed: 7.4 },
       { name: "Bulwark Unit", weaponType: "shield", ac: 13, atk: 2, dmgSides: 4, dmgMod: 0, maxHp: 13, xpValue: 8, speed: 6.6 },
     ];
 
@@ -1235,15 +1197,13 @@ export class Game {
       enemies.push({
         id: this.enemyIdCounter++,
         name: t.name,
-        weaponType: t.weaponType, // first stance (revealed once)
-        x,
-        y,
-        px: x,
-        py: y,
+        weaponType: t.weaponType,
+        x, y,
+        px: x, py: y,
         dir: { x: 0, y: 0 },
         speed: t.speed,
         hp: maxHp,
-        maxHp: maxHp,
+        maxHp,
         ac: t.ac + acBonus,
         atk: t.atk,
         dmgSides: t.dmgSides,
@@ -1281,9 +1241,7 @@ export class Game {
         }
       }
 
-      if (Math.random() < 0.25) {
-        return options[Math.floor(Math.random() * options.length)];
-      }
+      if (Math.random() < 0.25) return options[Math.floor(Math.random() * options.length)];
       return best;
     }
 
