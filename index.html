@@ -1,76 +1,186 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
-  <title>Space Maze RPG</title>
-  <link rel="stylesheet" href="style.css" />
-</head>
-<body>
-  <div id="app">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"
+    />
+    <title>Space Sword Dungeon</title>
+    <style>
+      html, body {
+        margin: 0;
+        height: 100%;
+        background: #050812;
+        overflow: hidden;
+        touch-action: none;
+        -webkit-user-select: none;
+        user-select: none;
+      }
+
+      #game {
+        width: 100vw;
+        height: 100vh;
+        display: block;
+      }
+
+      /* Battle overlay */
+      #encounter {
+        position: fixed;
+        inset: 0;
+        z-index: 9000;
+        display: flex;
+        align-items: flex-end;
+        justify-content: center;
+        padding: 14px;
+        background: rgba(0, 0, 0, 0.55);
+        font-family: system-ui;
+        color: rgba(231, 240, 255, 0.92);
+      }
+
+      #encounter.hidden { display: none; }
+
+      #encounter-card {
+        width: min(760px, 96vw);
+        border-radius: 14px;
+        border: 1px solid rgba(255,255,255,0.18);
+        background: rgba(5, 8, 18, 0.92);
+        padding: 12px;
+      }
+
+      #encounter-top {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 8px;
+        align-items: start;
+      }
+
+      #enemy-name {
+        font-weight: 700;
+        letter-spacing: 0.4px;
+      }
+
+      #encounter-sub {
+        opacity: 0.85;
+        font-size: 12px;
+        margin-top: 2px;
+      }
+
+      #encounter-stats {
+        text-align: right;
+        font-size: 12px;
+        opacity: 0.9;
+        line-height: 1.25;
+      }
+
+      #roll-out {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+        font-size: 12px;
+        opacity: 0.9;
+        margin-top: 8px;
+      }
+
+      #battle-log {
+        margin-top: 10px;
+        max-height: 150px;
+        overflow: auto;
+        border-radius: 12px;
+        border: 1px solid rgba(255,255,255,0.12);
+        background: rgba(231,240,255,0.05);
+        padding: 10px;
+        font-size: 12px;
+        line-height: 1.35;
+      }
+
+      #battle-actions {
+        margin-top: 10px;
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 10px;
+      }
+
+      .bbtn {
+        padding: 12px 10px;
+        border-radius: 12px;
+        border: 1px solid rgba(255,255,255,0.18);
+        background: rgba(231,240,255,0.08);
+        color: rgba(231,240,255,0.92);
+        font-size: 14px;
+      }
+
+      .bbtn:disabled {
+        opacity: 0.55;
+      }
+
+      #battle-bottom {
+        margin-top: 10px;
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 10px;
+      }
+
+      /* NOTE:
+         We removed the old Action/Menu buttons entirely, per request.
+         Only battle controls + the D-pad exist now.
+      */
+    </style>
+  </head>
+  <body>
     <canvas id="game"></canvas>
 
-    <!-- Encounter overlay -->
+    <!-- Battle UI -->
     <div id="encounter" class="hidden">
-      <div class="panel">
-        <div class="title">ENCOUNTER</div>
-        <div id="encounter-sub" class="sub">A hostile signal in the corridor…</div>
-
-        <div class="grid">
-          <div class="row">
-            <div class="label">Enemy</div>
-            <div id="enemy-name" class="value">Void Drone</div>
+      <div id="encounter-card">
+        <div id="encounter-top">
+          <div>
+            <div id="enemy-name">Enemy</div>
+            <div id="encounter-sub">Enemy stance: ???</div>
           </div>
 
-          <div class="row">
-            <div class="label">Enemy HP</div>
-            <div id="enemy-hp" class="value">10 / 10</div>
-          </div>
-
-          <div class="row">
-            <div class="label">Your HP</div>
-            <div id="player-hp" class="value">20 / 20</div>
-          </div>
-
-          <div class="row">
-            <div class="label">Last Roll</div>
-            <div id="roll-out" class="value">-</div>
+          <div id="encounter-stats">
+            <div>Enemy HP: <span id="enemy-hp">-</span></div>
+            <div>Your HP: <span id="player-hp">-</span></div>
           </div>
         </div>
 
-        <div id="battle-log" class="log" aria-live="polite"></div>
+        <div id="roll-out">-</div>
 
-        <div class="btnrow">
-          <button id="btn-attack">Sword</button>
-          <button id="btn-tech">Blaster</button>
-          <button id="btn-defend">Defend</button>
-          <button id="btn-panic">Panic</button>
+        <div id="battle-log"></div>
+
+        <div id="battle-actions">
+          <button id="btn-attack" class="bbtn">Sword</button>
+          <button id="btn-tech" class="bbtn">Gun</button>
+          <button id="btn-defend" class="bbtn">Shield</button>
         </div>
 
-        <div class="btnrow">
-          <button id="btn-exit">Exit</button>
+        <div id="battle-bottom">
+          <button id="btn-panic" class="bbtn">Panic</button>
+          <button id="btn-exit" class="bbtn" disabled>Exit</button>
         </div>
       </div>
     </div>
 
-    <!-- Mobile controls -->
-    <div id="controls">
-      <div class="pad">
-        <button data-dir="up" aria-label="Up">▲</button>
-        <div class="mid">
-          <button data-dir="left" aria-label="Left">◀</button>
-          <button data-dir="down" aria-label="Down">▼</button>
-          <button data-dir="right" aria-label="Right">▶</button>
-        </div>
-      </div>
+    <script type="module">
+      import { Game } from "./src/game.js";
 
-      <div class="actions">
-        <button id="btn-action" disabled>Action</button>
-        <button id="btn-menu" disabled>Menu</button>
-      </div>
-    </div>
-  </div>
+      const canvas = document.getElementById("game");
+      const game = new Game(canvas);
 
-  <script type="module" src="./src/main.js"></script>
-</body>
+      const onResize = () => game.resize();
+      window.addEventListener("resize", onResize, { passive: true });
+      onResize();
+
+      let last = performance.now();
+      const loop = (t) => {
+        const dt = Math.min(0.05, (t - last) / 1000);
+        last = t;
+
+        game.update(dt);
+        game.render();
+
+        requestAnimationFrame(loop);
+      };
+      requestAnimationFrame(loop);
+    </script>
+  </body>
 </html>
